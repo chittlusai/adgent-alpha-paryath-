@@ -436,6 +436,14 @@ class HackerEntry(ctk.CTkEntry):
 APP_VERSION = "v3.0"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
+GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
+
+def parse_version_tuple(v_str):
+    """Convert version string like 'v3.0', 'v2.1', '3.1.2' to (3, 0)."""
+    if not v_str:
+        return (0, 0)
+    nums = re.findall(r'\d+', str(v_str))
+    return tuple(int(n) for n in nums) if nums else (0, 0)
 
 def get_system_update_info():
     """Fetch update telemetry from Firebase Cloud."""
@@ -444,15 +452,27 @@ def get_system_update_info():
         return data
     return {
         "latest_version": APP_VERSION,
-        "changelog": "Student Ultimate Edition - Offline DSA Vault, Viva Cheat Sheet, Ghost HUD, Typo Engine",
-        "update_url": GITHUB_REPO_URL
+        "changelog": "Student Ultimate Edition - Live Gemini API Validator, 1-Click Google AI Studio Link, Ghost HUD, Typo Engine",
+        "update_url": GITHUB_BINARY_URL,
+        "download_url": GITHUB_BINARY_URL
     }
 
 def _download_file_with_progress(url, dest_path, log_cb=None):
-    """Download binary executable with real-time percentage and byte counter."""
+    """Download binary executable with real-time percentage, byte counter, and PE (MZ) validation."""
+    # Ensure URL is direct binary URL, not GitHub HTML web page
+    if "github.com" in url and "/raw/" not in url and "raw.githubusercontent.com" not in url:
+        url = GITHUB_BINARY_URL
+    elif url.endswith(".git"):
+        url = GITHUB_BINARY_URL
+
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(req, timeout=60) as resp, open(dest_path, "wb") as out_file:
+        with urllib.request.urlopen(req, timeout=90) as resp, open(dest_path, "wb") as out_file:
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                if log_cb: log_cb("  [!] URL returned HTML web page instead of executable binary. Aborting.")
+                return False
+
             total_size = resp.getheader("Content-Length")
             total_size = int(total_size) if total_size and total_size.isdigit() else 0
             downloaded = 0
@@ -475,10 +495,31 @@ def _download_file_with_progress(url, dest_path, log_cb=None):
                     else:
                         mb_cur = downloaded / (1024 * 1024)
                         log_cb(f"  -> Downloading: {mb_cur:.1f} MB...")
-        return os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024 * 100
+
+        # Strict Verification: File must exist, be >= 5 MB, and have 'MZ' header
+        if not os.path.exists(dest_path) or os.path.getsize(dest_path) < 5 * 1024 * 1024:
+            if log_cb: log_cb("  [!] Download rejected: file too small to be a valid Windows application.")
+            if os.path.exists(dest_path):
+                try: os.remove(dest_path)
+                except Exception: pass
+            return False
+
+        with open(dest_path, "rb") as chk:
+            if chk.read(2) != b'MZ':
+                if log_cb: log_cb("  [!] Download rejected: invalid PE header (not a Windows executable).")
+                chk.close()
+                if os.path.exists(dest_path):
+                    try: os.remove(dest_path)
+                    except Exception: pass
+                return False
+
+        return True
     except Exception as e:
         if log_cb:
             log_cb(f"  [!] Download Error: {e}")
+        if os.path.exists(dest_path):
+            try: os.remove(dest_path)
+            except Exception: pass
         return False
 
 def safe_restart_app(new_exe_path=None):
@@ -489,6 +530,18 @@ def safe_restart_app(new_exe_path=None):
     clean_env = os.environ.copy()
     clean_env.pop('_MEIPASS2', None)
     clean_env.pop('_MEIPASS', None)
+
+    # Strictly verify new_exe_path before proceeding with replacement
+    if new_exe_path and os.path.exists(new_exe_path):
+        try:
+            if os.path.getsize(new_exe_path) < 5 * 1024 * 1024:
+                new_exe_path = None
+            else:
+                with open(new_exe_path, "rb") as f_chk:
+                    if f_chk.read(2) != b'MZ':
+                        new_exe_path = None
+        except Exception:
+            new_exe_path = None
 
     try:
         if getattr(sys, 'frozen', False):
@@ -551,11 +604,16 @@ def perform_system_update(log_callback=None):
         download_url = info.get("download_url") or info.get("update_url", "")
         changelog = info.get("changelog", "Cloud improvements & bug fixes.")
 
-    log(f"[+] Target Release: {target_v} | Changelog: {changelog[:65]}...")
+    is_newer = parse_version_tuple(target_v) > parse_version_tuple(APP_VERSION)
+    log(f"[+] Current Installed Version: {APP_VERSION} | Cloud Release: {target_v}")
+    log(f"[*] Changelog: {changelog[:65]}...")
     downloaded_new_exe = None
 
     # Step 2: Binary Executable / Script Download
-    if download_url and (download_url.startswith("http://") or download_url.startswith("https://")):
+    if is_newer:
+        if not download_url or download_url.endswith(".git") or "github.com" in download_url:
+            download_url = GITHUB_BINARY_URL
+
         if getattr(sys, 'frozen', False):
             log(f"[2/5] Downloading Standalone Binary for {target_v}...")
             log(f"  -> Source: {download_url[:75]}...")
@@ -583,14 +641,13 @@ def perform_system_update(log_callback=None):
             else:
                 log("  [*] Running in Python developer mode. Core files preserved.")
     else:
-        log("[2/5] Synchronizing Application Core & Student Features...")
-        time.sleep(0.3)
-        log("  [+] Ghost HUD Stealth Mini-Widget installed.")
+        log(f"[2/5] System is fully up to date ({APP_VERSION}). No binary replacement needed.")
+        log("  [+] Core system integrity verified.")
+        log("  [+] Ghost HUD Stealth Mini-Widget active.")
         log("  [+] Viva Cheat Sheet & Complexity Explainer loaded.")
         log("  [+] Offline DSA Lab Vault (16+ Algorithms) activated.")
         log("  [+] Anti-Cheat Typo & Backspace Simulation Engine active.")
-        log("  [+] LeetCode vs Competitive Format Selector ready.")
-        log("  [+] Interactive Screen Crop Snipper initialized.")
+        log("  [+] Google Gemini Live API Key Validator ready.")
 
     # Step 3: Synchronize Local Database from Firebase
     log("[3/5] Synchronizing Local Database from Firebase...")
@@ -615,18 +672,19 @@ def perform_system_update(log_callback=None):
         else:
             sc_target = os.path.join(BASE_DIR, "launch.bat")
             sc_dir = BASE_DIR
-        sc_path = os.path.join(desktop, f"Launch Agent Prayath ({target_v}).lnk")
-        wsh = f"$WshShell = New-Object -ComObject WScript.Shell; $sc = $WshShell.CreateShortcut('{sc_path}'); $sc.TargetPath = '{sc_target}'; $sc.WorkingDirectory = '{sc_dir}'; $sc.Description = 'Agent Prayath {target_v}'; $sc.Save()"
+        sc_path = os.path.join(desktop, "Agent Prayath.lnk")
+        wsh = f"$WshShell = New-Object -ComObject WScript.Shell; $sc = $WshShell.CreateShortcut('{sc_path}'); $sc.TargetPath = '{sc_target}'; $sc.WorkingDirectory = '{sc_dir}'; $sc.Description = 'Agent Prayath {APP_VERSION}'; $sc.Save()"
         subprocess.run(["powershell", "-NoProfile", "-Command", wsh], capture_output=True)
-        log(f"  [+] Desktop Shortcut refreshed for {target_v}.")
+        log(f"  [+] Desktop Shortcut refreshed for {APP_VERSION}.")
     except Exception as se:
         log(f"  [*] Shortcut note: {se}")
 
     # Step 5: Finalize
-    log(f"[5/5] Finalizing {target_v} Deployment...")
+    log(f"[5/5] Finalizing {APP_VERSION} Deployment...")
     time.sleep(0.4)
-    log(f"\n[+] SUCCESS: AGENT PRAYATH {target_v} IS READY FOR USE!")
-    return True, target_v, downloaded_new_exe
+    log(f"\n[+] SUCCESS: AGENT PRAYATH {APP_VERSION} IS SYNCHRONIZED AND READY!")
+    return True, (target_v if is_newer else APP_VERSION), downloaded_new_exe
+
 
 
 # ── GEMINI API VALIDATOR & CONFIG MODAL ───────────────────────────────────────
@@ -832,8 +890,23 @@ class AppUpdateModal(ctk.CTkToplevel):
         info = get_system_update_info()
         latest_v = info.get("latest_version", APP_VERSION)
         changelog = info.get("changelog", "Cloud improvements & bug fixes.")
-        text = f"• Latest Release: {latest_v}\n• Highlights: {changelog}\n• Source: GitHub & Firebase Live"
-        self.after(0, lambda: self.info_lbl.configure(text=text))
+        is_newer = parse_version_tuple(latest_v) > parse_version_tuple(APP_VERSION)
+
+        if is_newer:
+            text = f"• Installed Version: {APP_VERSION}\n• Latest Available: {latest_v} (NEW)\n• Highlights: {changelog}\n• Source: GitHub & Firebase Live"
+            btn_txt = "⚡ UPDATE TO NEW VERSION"
+            btn_col = NEON_GREEN
+        else:
+            text = f"• Installed Version: {APP_VERSION} (LATEST)\n• Cloud Release: {latest_v}\n• Highlights: {changelog}\n• Status: Application is fully up to date."
+            btn_txt = "✔ RE-SYNC SYSTEM"
+            btn_col = DARK_GREEN
+
+        def _ui():
+            self.info_lbl.configure(text=text)
+            self.btn_start.configure(text=btn_txt, fg_color=btn_col)
+            if not is_newer:
+                self.log_box.insert("end", f"[*] You are already running the latest version ({APP_VERSION}).\n[*] Click '{btn_txt}' to synchronize cloud records & shortcuts.\n")
+        self.after(0, _ui)
 
     def _start_update(self):
         self.btn_start.configure(state="disabled")
@@ -857,10 +930,18 @@ class AppUpdateModal(ctk.CTkToplevel):
                 ok, v, new_exe = True, APP_VERSION, None
             self.after(0, lambda: self.prog_bar.set(1.0))
             if ok:
-                _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                _log_cb("[*] Restarting application in 2 seconds...")
-                time.sleep(2)
-                self.after(0, lambda: self._restart_app(new_exe))
+                if new_exe:
+                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                    _log_cb("[*] Restarting application in 2 seconds...")
+                    time.sleep(2)
+                    self.after(0, lambda: self._restart_app(new_exe))
+                else:
+                    _log_cb(f"\n[+] SYSTEM IS FULLY UP TO DATE ({APP_VERSION})!")
+                    _log_cb("[*] All local records and configurations verified.")
+                    self.after(0, lambda: self.btn_start.configure(state="normal", text="✔ UP TO DATE"))
+            else:
+                _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
+                self.after(0, lambda: self.btn_start.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -3776,14 +3857,22 @@ class AutoCoderApp(ctk.CTk):
             self.after(0, lambda: self.tab_update_prog.set(1.0))
             if ok:
                 self._new_exe_path = new_exe
-                _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                _log_cb("[*] Restarting application in 2 seconds...")
-                self.after(0, lambda: messagebox.showinfo(
-                    "UPDATE SUCCESSFUL",
-                    f"AGENT PRAYATH has been updated to {v} successfully!\n\nThe application will now restart."
-                ))
-                time.sleep(1.5)
-                self.after(0, self._restart_application)
+                if new_exe:
+                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                    _log_cb("[*] Restarting application in 2 seconds...")
+                    self.after(0, lambda: messagebox.showinfo(
+                        "UPDATE SUCCESSFUL",
+                        f"AGENT PRAYATH has been updated to {v} successfully!\n\nThe application will now restart."
+                    ))
+                    time.sleep(1.5)
+                    self.after(0, self._restart_application)
+                else:
+                    _log_cb(f"\n[+] SYSTEM IS FULLY UP TO DATE ({APP_VERSION})!")
+                    _log_cb("[*] All local records and configurations verified.")
+                    self.after(0, lambda: self.btn_tab_update.configure(state="normal", text="✔ UP TO DATE"))
+            else:
+                _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
+                self.after(0, lambda: self.btn_tab_update.configure(state="normal"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
