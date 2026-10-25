@@ -16,25 +16,31 @@
 
 ---
 
-## 💻 How to Run
+## 💻 How to Run & Install
 
-### 1. Standalone Executable (Zero Installation)
-Simply run:
-```text
-dist/AgentPrayath.exe
+### 1. Verified One-Click Installer (Recommended for All Users)
+Run the automated installer inside the `dist` folder:
+```cmd
+dist\Install_AgentPrayath.bat
 ```
-*(No Python installation or terminal commands required)*
+* **Bypasses Windows SmartScreen**: Automatically strips download quarantine flags (`Zone.Identifier`).
+* **Registers Digital Security Certificate**: Installs the Prayath Authenticode certificate to Windows Trusted Publishers so the publisher is recognized as verified.
+* **Creates Desktop & Start Menu Shortcuts**: Ready to launch in one click with zero warnings.
 
-### 2. Command Prompt (CMD)
+### 2. Instant Portable Launcher (No Installation)
+If running directly from the unzipped folder without full installation:
+```cmd
+dist\Unblock_And_Run.bat
+```
+or double-click `dist\AgentPrayath.exe`.
+*(If Windows SmartScreen displays "Windows protected your PC", click **More info** -> **Run anyway**, or use `Unblock_And_Run.bat` to eliminate the popup).*
+
+### 3. Developer Launch (Python Source)
+Run via Command Prompt:
 ```cmd
 launch.bat
 ```
-or
-```cmd
-python vision_agent.py
-```
-
-### 3. PowerShell
+or PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\launch.ps1
 ```

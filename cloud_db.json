@@ -15,7 +15,7 @@
   "263B11DS620": {
     "branch": "ds",
     "name": "sirigidi surya",
-    "password": "surya@620",
+    "password": "Surya@678",
     "phone": "N/A",
     "university": "Aditya University"
   },
@@ -2501,9 +2501,9 @@
   },
   "26B11AI475": {
     "branch": "AIML",
-    "father_phone": "9550328133",
     "name": "KARTHIK TALLAPRAGADA",
-    "phone": "9550328133",
+    "password": "K@rthik123",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11AI476": {
@@ -4404,9 +4404,9 @@
   },
   "26B11AI855": {
     "branch": "AIML",
-    "father_phone": "7893223285",
     "name": "Penmatsa Sai Vivek Varma",
-    "phone": "8977726757",
+    "password": "psvvarma@6757",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11AI858": {
@@ -5113,9 +5113,9 @@
   },
   "26B11AI997": {
     "branch": "AIML",
-    "father_phone": "8500478254",
     "name": "SEELAM KRISHNA MANOHAR",
-    "phone": "9553293117",
+    "password": "webcaap",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11AI998": {
@@ -6756,6 +6756,20 @@
     "phone": "6304112425",
     "university": "Aditya University"
   },
+  "26B11DS100": {
+    "branch": "DS",
+    "father_name": "MALLIDI NAGENDRA REDDY",
+    "father_phone": "9177689222",
+    "is_temp": false,
+    "name": "MALLIDI KALYANI",
+    "password": "",
+    "permanent_roll": "26B11DS100",
+    "phone": "8978927459",
+    "seat_type": "CONVENOR",
+    "status": "ACTIVE_PERMANENT",
+    "temp_roll": "26BAUCQDS100",
+    "university": "Aditya University"
+  },
   "26B11DS112": {
     "branch": "DS",
     "name": "chiratla varalakshmi",
@@ -6819,9 +6833,9 @@
   },
   "26B11DS308": {
     "branch": "DS",
-    "father_phone": "9010264036",
     "name": "KONDA CHARAN",
-    "phone": "9010264036",
+    "password": "2276865",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11DS309": {
@@ -7057,9 +7071,9 @@
   },
   "26B11DS557": {
     "branch": "DS",
-    "father_phone": "8498028169",
     "name": "REESA SAIBABU",
-    "phone": "9160839144",
+    "password": "saibabu",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11DS574": {
@@ -7084,9 +7098,10 @@
     "university": "Aditya University"
   },
   "26B11DS620": {
-    "branch": "DS",
+    "branch": "ds",
     "father_phone": "8332819056",
-    "name": "SIRIGIDI SURYA",
+    "name": "sirigidi surya",
+    "password": "Surya@678",
     "phone": "8332819056",
     "university": "Aditya University"
   },
@@ -17862,11 +17877,13 @@
     "father_name": "MALLIDI NAGENDRA REDDY",
     "father_phone": "9177689222",
     "is_temp": true,
+    "migrated_to": "26B11DS100",
     "name": "MALLIDI KALYANI",
     "password": "",
+    "permanent_roll": "26B11DS100",
     "phone": "8978927459",
     "seat_type": "CONVENOR",
-    "status": "PENDING_PERMANENT_ACTIVATION",
+    "status": "MIGRATED",
     "temp_roll": "26BAUCQDS100",
     "university": "Aditya University"
   },

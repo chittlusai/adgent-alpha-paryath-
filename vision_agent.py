@@ -1,9 +1,47 @@
+import os, sys, json
+
+# ── Dynamic CustomTkinter PyInstaller Asset Injector ─────────────────────────
+if getattr(sys, 'frozen', False):
+    try:
+        _mei = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        _th_dir = os.path.join(_mei, "customtkinter", "assets", "themes")
+        os.makedirs(_th_dir, exist_ok=True)
+        _THEME_BASE = {
+            "CTk": {"fg_color": ["gray92", "gray14"]},
+            "CTkToplevel": {"fg_color": ["gray92", "gray14"]},
+            "CTkFrame": {"corner_radius": 6, "border_width": 0, "fg_color": ["gray86", "gray17"], "top_fg_color": ["gray81", "gray20"], "border_color": ["gray65", "gray28"]},
+            "CTkButton": {"corner_radius": 6, "border_width": 0, "fg_color": ["#3B8ED0", "#1F6AA5"], "hover_color": ["#36719F", "#144870"], "border_color": ["#3E454A", "#949A9F"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]},
+            "CTkLabel": {"corner_radius": 0, "border_width": 0, "fg_color": "transparent", "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray10", "#DCE4EE"]},
+            "CTkEntry": {"corner_radius": 6, "border_width": 2, "fg_color": ["#F9F9FA", "#343638"], "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray10", "#DCE4EE"], "placeholder_text_color": ["gray52", "gray62"]},
+            "CTkCheckBox": {"corner_radius": 6, "border_width": 3, "fg_color": ["#3B8ED0", "#1F6AA5"], "border_color": ["#3E454A", "#949A9F"], "hover_color": ["#36719F", "#144870"], "checkmark_color": ["#DCE4EE", "gray90"], "text_color": ["gray10", "#DCE4EE"], "text_color_disabled": ["gray60", "gray45"]},
+            "CTkSwitch": {"corner_radius": 1000, "border_width": 3, "button_length": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["#3B8ED0", "#1F6AA5"], "button_color": ["gray36", "#D5D9DE"], "button_hover_color": ["gray20", "gray100"], "text_color": ["gray10", "#DCE4EE"], "text_color_disabled": ["gray60", "gray45"]},
+            "CTkRadioButton": {"corner_radius": 1000, "border_width_checked": 6, "border_width_unchecked": 3, "fg_color": ["#3B8ED0", "#1F6AA5"], "border_color": ["#3E454A", "#949A9F"], "hover_color": ["#36719F", "#144870"], "text_color": ["gray10", "#DCE4EE"], "text_color_disabled": ["gray60", "gray45"]},
+            "CTkProgressBar": {"corner_radius": 1000, "border_width": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["#3B8ED0", "#1F6AA5"], "border_color": ["gray", "gray"]},
+            "CTkSlider": {"corner_radius": 1000, "button_corner_radius": 1000, "border_width": 6, "button_length": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["gray40", "#AAB0B5"], "button_color": ["#3B8ED0", "#1F6AA5"], "button_hover_color": ["#36719F", "#144870"]},
+            "CTkOptionMenu": {"corner_radius": 6, "fg_color": ["#3B8ED0", "#1F6AA5"], "button_color": ["#36719F", "#144870"], "button_hover_color": ["#27577D", "#203A4F"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]},
+            "CTkComboBox": {"corner_radius": 6, "border_width": 2, "fg_color": ["#F9F9FA", "#343638"], "border_color": ["#979DA2", "#565B5E"], "button_color": ["#979DA2", "#565B5E"], "button_hover_color": ["#6E7174", "#7A848D"], "text_color": ["gray10", "#DCE4EE"], "text_color_disabled": ["gray50", "gray45"]},
+            "CTkScrollbar": {"corner_radius": 1000, "border_spacing": 4, "fg_color": "transparent", "button_color": ["gray55", "gray41"], "button_hover_color": ["gray40", "gray53"]},
+            "CTkSegmentedButton": {"corner_radius": 6, "border_width": 2, "fg_color": ["#979DA2", "gray29"], "selected_color": ["#3B8ED0", "#1F6AA5"], "selected_hover_color": ["#36719F", "#144870"], "unselected_color": ["#979DA2", "gray29"], "unselected_hover_color": ["gray70", "gray41"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]},
+            "CTkTextbox": {"corner_radius": 6, "border_width": 0, "fg_color": ["#F9F9FA", "#1D1E1E"], "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray10", "#DCE4EE"], "scrollbar_button_color": ["gray55", "gray41"], "scrollbar_button_hover_color": ["gray40", "gray53"]},
+            "CTkScrollableFrame": {"label_fg_color": ["gray78", "gray23"]},
+            "DropdownMenu": {"fg_color": ["gray90", "gray20"], "hover_color": ["gray75", "gray28"], "text_color": ["gray10", "gray90"]},
+            "CTkFont": {"macOS": {"family": "SF Display", "size": 13, "weight": "normal"}, "Windows": {"family": "Roboto", "size": 13, "weight": "normal"}, "Linux": {"family": "Roboto", "size": 13, "weight": "normal"}}
+        }
+        _th_json = json.dumps(_THEME_BASE)
+        for _name in ["blue.json", "dark-blue.json", "green.json", "gold.json"]:
+            _dest = os.path.join(_th_dir, _name)
+            if not os.path.exists(_dest):
+                with open(_dest, "w", encoding="utf-8") as _f:
+                    _f.write(_th_json)
+    except Exception as _e:
+        pass
+
 """
 AGENT PRAYATH - Autonomous Automatic Code Editor
 Run:  python vision_agent.py
 """
 
-import os, sys, time, json, threading, subprocess, webbrowser, random, shutil
+import os, sys, time, json, threading, subprocess, webbrowser, random, shutil, tempfile, re
 import urllib.request, urllib.error
 from tkinter import ttk
 
@@ -16,6 +54,9 @@ REQUIRED_PACKAGES = {
 }
 
 def bootstrap_dependencies():
+    # If running as a compiled standalone executable, all dependencies are already bundled
+    if getattr(sys, 'frozen', False):
+        return
     for mod, pip_name in REQUIRED_PACKAGES.items():
         try:
             __import__(mod)
@@ -29,6 +70,33 @@ def bootstrap_dependencies():
 bootstrap_dependencies()
 
 import customtkinter as ctk
+
+# ── Resilient CustomTkinter Theme Bootstrapper ──────────────────────────────
+try:
+    import customtkinter.windows.widgets.theme.theme_manager as _ctk_tm
+    _orig_load_theme = _ctk_tm.ThemeManager.load_theme
+    _FALLBACK_DARK_BLUE = {"CTk": {"fg_color": ["gray95", "gray10"]}, "CTkToplevel": {"fg_color": ["gray95", "gray10"]}, "CTkFrame": {"corner_radius": 6, "border_width": 0, "fg_color": ["gray90", "gray13"], "top_fg_color": ["gray85", "gray16"], "border_color": ["gray65", "gray28"]}, "CTkButton": {"corner_radius": 6, "border_width": 0, "fg_color": ["#3A7EBF", "#1F538D"], "hover_color": ["#325882", "#14375E"], "border_color": ["#3E454A", "#949A9F"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]}, "CTkLabel": {"corner_radius": 0, "border_width": 0, "fg_color": "transparent", "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray14", "gray84"]}, "CTkEntry": {"corner_radius": 6, "border_width": 2, "fg_color": ["#F9F9FA", "#343638"], "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray14", "gray84"], "placeholder_text_color": ["gray52", "gray62"]}, "CTkCheckBox": {"corner_radius": 6, "border_width": 3, "fg_color": ["#3A7EBF", "#1F538D"], "border_color": ["#3E454A", "#949A9F"], "hover_color": ["#325882", "#14375E"], "checkmark_color": ["#DCE4EE", "gray90"], "text_color": ["gray14", "gray84"], "text_color_disabled": ["gray60", "gray45"]}, "CTkSwitch": {"corner_radius": 1000, "border_width": 3, "button_length": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["#3A7EBF", "#1F538D"], "button_color": ["gray36", "#D5D9DE"], "button_hover_color": ["gray20", "gray100"], "text_color": ["gray14", "gray84"], "text_color_disabled": ["gray60", "gray45"]}, "CTkRadioButton": {"corner_radius": 1000, "border_width_checked": 6, "border_width_unchecked": 3, "fg_color": ["#3A7EBF", "#1F538D"], "border_color": ["#3E454A", "#949A9F"], "hover_color": ["#325882", "#14375E"], "text_color": ["gray14", "gray84"], "text_color_disabled": ["gray60", "gray45"]}, "CTkProgressBar": {"corner_radius": 1000, "border_width": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["#3A7EBF", "#1F538D"], "border_color": ["gray", "gray"]}, "CTkSlider": {"corner_radius": 1000, "button_corner_radius": 1000, "border_width": 6, "button_length": 0, "fg_color": ["#939BA2", "#4A4D50"], "progress_color": ["gray40", "#AAB0B5"], "button_color": ["#3A7EBF", "#1F538D"], "button_hover_color": ["#325882", "#14375E"]}, "CTkOptionMenu": {"corner_radius": 6, "fg_color": ["#3A7EBF", "#1F538D"], "button_color": ["#325882", "#14375E"], "button_hover_color": ["#234567", "#1E2C40"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]}, "CTkComboBox": {"corner_radius": 6, "border_width": 2, "fg_color": ["#F9F9FA", "#343638"], "border_color": ["#979DA2", "#565B5E"], "button_color": ["#979DA2", "#565B5E"], "button_hover_color": ["#6E7174", "#7A848D"], "text_color": ["gray14", "gray84"], "text_color_disabled": ["gray50", "gray45"]}, "CTkScrollbar": {"corner_radius": 1000, "border_spacing": 4, "fg_color": "transparent", "button_color": ["gray55", "gray41"], "button_hover_color": ["gray40", "gray53"]}, "CTkSegmentedButton": {"corner_radius": 6, "border_width": 2, "fg_color": ["#979DA2", "gray29"], "selected_color": ["#3A7EBF", "#1F538D"], "selected_hover_color": ["#325882", "#14375E"], "unselected_color": ["#979DA2", "gray29"], "unselected_hover_color": ["gray70", "gray41"], "text_color": ["#DCE4EE", "#DCE4EE"], "text_color_disabled": ["gray74", "gray60"]}, "CTkTextbox": {"corner_radius": 6, "border_width": 0, "fg_color": ["gray100", "gray20"], "border_color": ["#979DA2", "#565B5E"], "text_color": ["gray14", "gray84"], "scrollbar_button_color": ["gray55", "gray41"], "scrollbar_button_hover_color": ["gray40", "gray53"]}, "CTkScrollableFrame": {"label_fg_color": ["gray80", "gray21"]}, "DropdownMenu": {"fg_color": ["gray90", "gray20"], "hover_color": ["gray75", "gray28"], "text_color": ["gray14", "gray84"]}, "CTkFont": {"macOS": {"family": "SF Display", "size": 13, "weight": "normal"}, "Windows": {"family": "Roboto", "size": 13, "weight": "normal"}, "Linux": {"family": "Roboto", "size": 13, "weight": "normal"}}}
+
+    @classmethod
+    def _safe_load_theme(cls, theme_name_or_path: str):
+        try:
+            _orig_load_theme(theme_name_or_path)
+        except (FileNotFoundError, Exception):
+            import copy
+            cls.theme = copy.deepcopy(_FALLBACK_DARK_BLUE)
+            cls._currently_loaded_theme = "dark-blue"
+            for k in list(cls.theme.keys()):
+                if isinstance(cls.theme[k], dict) and "Windows" in cls.theme[k]:
+                    cls.theme[k] = cls.theme[k]["Windows"]
+            if "CTkCheckbox" in cls.theme: cls.theme["CTkCheckBox"] = cls.theme.pop("CTkCheckbox")
+            if "CTkRadiobutton" in cls.theme: cls.theme["CTkRadioButton"] = cls.theme.pop("CTkRadiobutton")
+            if "CTkLabel" in cls.theme:
+                if "border_width" not in cls.theme["CTkLabel"]: cls.theme["CTkLabel"]["border_width"] = 0
+                if "border_color" not in cls.theme["CTkLabel"]: cls.theme["CTkLabel"]["border_color"] = ["black", "white"]
+
+    _ctk_tm.ThemeManager.load_theme = _safe_load_theme
+except Exception:
+    pass
 from tkinter import messagebox
 from pynput import keyboard, mouse
 from pynput.keyboard import Controller as KController
@@ -43,8 +111,12 @@ except Exception:
 ctk.set_appearance_mode("Dark")
 
 # ── Data Management & Firebase Cloud ──────────────────────────────────────────
-SESSION_FILE = os.path.join(os.path.dirname(__file__), ".alpha_session.json")
-LOCAL_DB_FILE = os.path.join(os.path.dirname(__file__), "cloud_db.json")
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SESSION_FILE = os.path.join(BASE_DIR, ".alpha_session.json")
+LOCAL_DB_FILE = os.path.join(BASE_DIR, "cloud_db.json")
 FIREBASE_URL = "https://alpha-agent-2d55f-default-rtdb.firebaseio.com"
 
 def load_session():
@@ -66,53 +138,137 @@ def save_session(data):
 def _safe_key(key):
     return str(key).strip().replace(".", "_").replace("#", "_").replace("$", "_").replace("[", "_").replace("]", "_").replace("/", "_")
 
-def _firebase_request(path, method="GET", data=None):
+def _firebase_request(path, method="GET", data=None, timeout=6):
     """Execute authenticated REST request to Firebase Realtime Database."""
     url = f"{FIREBASE_URL}{path}.json"
     body = json.dumps(data).encode('utf-8') if data is not None else None
     headers = {'Content-Type': 'application/json'} if body else {}
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             content = resp.read().decode('utf-8')
             return json.loads(content) if content else None
     except Exception as e:
-        print(f"[Firebase {method} {path} Error]: {e}")
+        print(f"[Firebase {method} {path} Note]: {e}")
         return None
 
+def save_local_db(db):
+    """Persist student database to local cache."""
+    try:
+        with open(LOCAL_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2)
+    except Exception as e:
+        print(f"[Local DB Save Error]: {e}")
+
 def load_cloud_db():
-    """Load entire student database from Firebase with local cache fallback."""
-    result = _firebase_request("/students")
-    if isinstance(result, dict):
-        return result
-    # Fallback to local file if offline
+    """Load student database with instant local cache and cloud fallback."""
+    local_db = {}
     if os.path.exists(LOCAL_DB_FILE):
         try:
-            with open(LOCAL_DB_FILE, "r") as f:
-                return json.load(f)
+            with open(LOCAL_DB_FILE, "r", encoding="utf-8") as f:
+                local_db = json.load(f)
         except Exception:
-            pass
-    return {}
+            local_db = {}
+    if not local_db:
+        result = _firebase_request("/students", timeout=8)
+        if isinstance(result, dict) and result:
+            local_db = result
+            save_local_db(local_db)
+    return local_db
 
 def save_cloud_db(db):
     """Save entire student database to Firebase."""
-    return _firebase_request("/students", method="PUT", data=db)
+    save_local_db(db)
+    return _firebase_request("/students", method="PUT", data=db, timeout=12)
+
+def find_student(identifier, local_db=None):
+    """
+    Universal student lookup matching:
+    1. Roll Number (case-insensitive, e.g. 26B11AI001 or 26b11ai001)
+    2. Phone / Mobile Number (e.g. 10 digits matching phone or father_phone)
+    3. Temp Roll Number (with or without hyphen, e.g. AUS26-1040, AUS261040)
+    4. Internal fields (temp_roll, permanent_roll, migrated_to)
+    Returns: (canonical_roll, student_record_dict) or (None, None)
+    """
+    if not identifier:
+        return None, None
+    raw = str(identifier).strip()
+    clean_id = raw.upper()
+    safe_key = _safe_key(clean_id)
+
+    # 1. Direct Firebase query (for latest live password & record changes)
+    res = _firebase_request(f"/students/{safe_key}", timeout=4)
+    if isinstance(res, dict) and (res.get("name") or res.get("branch")):
+        return clean_id, res
+
+    # 2. Local database lookup
+    db = local_db
+    if not isinstance(db, dict) or not db:
+        db = load_cloud_db()
+
+    # 2a. Direct key match (case-insensitive)
+    if clean_id in db and isinstance(db[clean_id], dict):
+        return clean_id, db[clean_id]
+
+    for k, v in db.items():
+        if k.upper() == clean_id and isinstance(v, dict):
+            return k, v
+
+    # 2b. Hyphen / Space agnostic match (e.g. AUS2614749 -> AUS26-14749)
+    no_dash_query = clean_id.replace("-", "").replace("_", "").replace(" ", "")
+    if no_dash_query:
+        for k, v in db.items():
+            if not isinstance(v, dict): continue
+            if k.upper().replace("-", "").replace("_", "").replace(" ", "") == no_dash_query:
+                return k, v
+
+    # 2c. Mobile phone number lookup (matches last 10 digits of student phone or parent phone)
+    digits = re.sub(r'\D', '', raw)
+    if len(digits) >= 10:
+        phone_10 = digits[-10:]
+        for k, v in db.items():
+            if not isinstance(v, dict): continue
+            p = re.sub(r'\D', '', str(v.get("phone", "")))
+            fp = re.sub(r'\D', '', str(v.get("father_phone", "")))
+            if (len(p) >= 10 and p.endswith(phone_10)) or (len(fp) >= 10 and fp.endswith(phone_10)):
+                return k, v
+
+    # 2d. Internal fields match (temp_roll, permanent_roll, migrated_to)
+    for k, v in db.items():
+        if not isinstance(v, dict): continue
+        if str(v.get("temp_roll", "")).upper() == clean_id:
+            return k, v
+        if str(v.get("permanent_roll", "")).upper() == clean_id:
+            return k, v
+        if str(v.get("migrated_to", "")).upper() == clean_id:
+            return k, v
+
+    # 2e. Aditya University College Code <-> Temp Roll prefix translation (e.g. 26B11DS100 <-> 26BAUCQDS100)
+    alt_candidates = []
+    if "26B11" in clean_id:
+        alt_candidates.append(clean_id.replace("26B11", "26BAUCQ"))
+        alt_candidates.append(clean_id.replace("26B11", "26BAU"))
+    elif "26BAUCQ" in clean_id:
+        alt_candidates.append(clean_id.replace("26BAUCQ", "26B11"))
+    elif "26BAU" in clean_id:
+        alt_candidates.append(clean_id.replace("26BAU", "26B11"))
+
+    for alt in alt_candidates:
+        if alt in db and isinstance(db[alt], dict):
+            return clean_id, db[alt]
+        for k, v in db.items():
+            if k.upper() == alt and isinstance(v, dict):
+                return clean_id, v
+        fb_alt = _firebase_request(f"/students/{_safe_key(alt)}", timeout=3)
+        if isinstance(fb_alt, dict) and (fb_alt.get("name") or fb_alt.get("branch")):
+            return clean_id, fb_alt
+
+    return None, None
 
 def get_student(roll):
-    """Get single student record live from Firebase."""
-    safe_roll = _safe_key(roll)
-    result = _firebase_request(f"/students/{safe_roll}")
-    if isinstance(result, dict):
-        return result
-    # Local fallback
-    if os.path.exists(LOCAL_DB_FILE):
-        try:
-            with open(LOCAL_DB_FILE, "r") as f:
-                db = json.load(f)
-                return db.get(roll)
-        except Exception:
-            pass
-    return None
+    """Get single student record live from Firebase or local DB with smart matching."""
+    _, data = find_student(roll)
+    return data
 
 def set_student(roll, data):
     """Create or overwrite single student record in Firebase."""
@@ -147,19 +303,38 @@ def remove_online_presence(roll):
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
     def __init__(self, api_key=""):
-        self.api_key = api_key.strip()
-        self.client  = None
-        if self.api_key: self._init_client()
+        self.raw_keys = [k.strip() for k in api_key.replace(";", ",").split(",") if k.strip()]
+        self.key_idx  = 0
+        self.client   = None
+        if self.raw_keys:
+            self._init_client()
 
     def _init_client(self):
-        if _genai and self.api_key:
-            try: self.client = _genai.Client(api_key=self.api_key)
-            except Exception: self.client = None
+        if _genai and self.raw_keys:
+            cur_key = self.raw_keys[self.key_idx % len(self.raw_keys)]
+            try:
+                self.client = _genai.Client(api_key=cur_key)
+            except Exception:
+                self.client = None
 
-    def _sys(self, lang):
-        return (f"You are an expert autonomous software engineer specialised in {lang}. "
-                "Write optimal, correct, production-grade code. "
-                "STRICT: Output ONLY executable code. No markdown fences. No explanations.")
+    def _rotate_key(self):
+        if len(self.raw_keys) > 1:
+            self.key_idx = (self.key_idx + 1) % len(self.raw_keys)
+            self._init_client()
+            return True
+        return False
+
+    def _sys(self, lang, format_type="competitive", mode="optimal"):
+        base = f"You are an expert autonomous software engineer specialised in {lang}. "
+        if format_type == "leetcode":
+            fmt_inst = "Provide ONLY the class and method implementation suitable for LeetCode without any main function or standard input parsing. "
+        else:
+            fmt_inst = "Provide a complete runnable standalone solution reading input from standard input (cin/Scanner/sys.stdin) and printing output to standard output. "
+        if mode == "simple":
+            sol_inst = "Write clean, straightforward, beginner-friendly code that is easy to explain in a college lab viva. "
+        else:
+            sol_inst = "Write the most optimal, production-grade code that completely passes 100% of hidden test cases with minimal time complexity. "
+        return base + fmt_inst + sol_inst + "STRICT: Output ONLY executable code. No markdown fences. No explanations. Start line 1 with code."
 
     def _clean(self, code):
         code = code.strip()
@@ -170,21 +345,55 @@ class AntigravityBackend:
             code = "\n".join(lines).strip()
         return code
 
-    def from_text(self, prompt, lang):
+    def from_text(self, prompt, lang, format_type="competitive", mode="optimal"):
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            try:
+                r = self.client.models.generate_content(
+                    model="gemini-2.0-flash", contents=prompt,
+                    config={"system_instruction": self._sys(lang, format_type, mode), "temperature": 0.1})
+                return self._clean(r.text)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if self._rotate_key(): continue
+                raise e
+
+    def from_image(self, image, lang, prompt=None, sys_inst=None, format_type="competitive", mode="optimal"):
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            p  = prompt or f"Read the coding question on screen and write the solution in {lang}."
+            si = sys_inst or self._sys(lang, format_type, mode)
+            try:
+                r  = self.client.models.generate_content(
+                    model="gemini-2.0-flash", contents=[p, image],
+                    config={"system_instruction": si, "temperature": 0.1})
+                return self._clean(r.text)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if self._rotate_key(): continue
+                raise e
+
+    def generate_viva_notes(self, code, lang):
         if not self.client: raise RuntimeError("NO_UPLINK")
+        prompt = (f"Review this {lang} code:\n\n{code}\n\n"
+                  "Provide a concise viva & exam preparation sheet in this exact format:\n"
+                  "1. ALGORITHM OVERVIEW (3 simple bullet points explaining the core logic)\n"
+                  "2. COMPLEXITY ANALYSIS (Time Complexity: O(?), Space Complexity: O(?))\n"
+                  "3. 3 COMMON VIVA QUESTIONS WITH MODEL ANSWERS (Questions an examiner or interviewer will ask about this code)")
         r = self.client.models.generate_content(
             model="gemini-2.0-flash", contents=prompt,
-            config={"system_instruction": self._sys(lang), "temperature": 0.1})
-        return self._clean(r.text)
+            config={"system_instruction": "You are a university computer science professor preparing students for viva examinations.", "temperature": 0.2})
+        return r.text.strip()
 
-    def from_image(self, image, lang, prompt=None, sys_inst=None):
+    def predict_test_cases(self, code, lang):
         if not self.client: raise RuntimeError("NO_UPLINK")
-        p  = prompt or f"Read the coding question on screen and write the solution in {lang}."
-        si = sys_inst or self._sys(lang)
-        r  = self.client.models.generate_content(
-            model="gemini-2.0-flash", contents=[p, image],
-            config={"system_instruction": si, "temperature": 0.1})
-        return self._clean(r.text)
+        prompt = (f"Review this {lang} code:\n\n{code}\n\n"
+                  "Generate 3 diverse test cases with inputs, expected outputs, and explain 2 critical edge cases (e.g. boundary values, zero, negative numbers, empty input).")
+        r = self.client.models.generate_content(
+            model="gemini-2.0-flash", contents=prompt,
+            config={"system_instruction": "You are a competitive programming judge creating rigorous test suites.", "temperature": 0.2})
+        return r.text.strip()
+
 
 # ── HACKER THEME TOKENS ─────────────────────────────────────────────────────
 BG         = "#030303"
@@ -197,6 +406,7 @@ DARK_GREEN = "#008F11"
 MUTED      = "#00aa22"
 DANGER     = "#ff003c"
 WARNING    = "#ffaa00"
+TEXT       = "#e0e0e0"
 
 FH1 = ("Consolas", 22, "bold")
 FH2 = ("Consolas", 16, "bold")
@@ -211,9 +421,9 @@ class HackerCard(ctk.CTkFrame):
                          border_color=BORDER_LT, corner_radius=0, **kwargs)
 
 class HackerButton(ctk.CTkButton):
-    def __init__(self, parent, text, command, color=DARK_GREEN, hover=NEON_GREEN, text_col="#000000", border_color=NEON_GREEN, **kwargs):
+    def __init__(self, parent, text, command, color=DARK_GREEN, hover=NEON_GREEN, text_col="#000000", border_color=NEON_GREEN, font=FH3, **kwargs):
         super().__init__(parent, text=text, command=command, fg_color=color, hover_color=hover,
-                         text_color=text_col, font=FH3, corner_radius=0, border_width=1, border_color=border_color, **kwargs)
+                         text_color=text_col, font=font, corner_radius=0, border_width=1, border_color=border_color, **kwargs)
 
 class HackerEntry(ctk.CTkEntry):
     def __init__(self, parent, placeholder="", show="", **kwargs):
@@ -223,7 +433,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v2.1"
+APP_VERSION = "v3.0"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 
@@ -234,81 +444,338 @@ def get_system_update_info():
         return data
     return {
         "latest_version": APP_VERSION,
-        "changelog": "Added AUS Temp Roll Login & Migration, 4400+ Campus Students DB Sync, Cloud Auto-Updater",
+        "changelog": "Student Ultimate Edition - Offline DSA Vault, Viva Cheat Sheet, Ghost HUD, Typo Engine",
         "update_url": GITHUB_REPO_URL
     }
 
+def _download_file_with_progress(url, dest_path, log_cb=None):
+    """Download binary executable with real-time percentage and byte counter."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(dest_path, "wb") as out_file:
+            total_size = resp.getheader("Content-Length")
+            total_size = int(total_size) if total_size and total_size.isdigit() else 0
+            downloaded = 0
+            chunk_size = 131072  # 128 KB
+            last_log_time = 0
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                downloaded += len(chunk)
+                now = time.time()
+                if log_cb and (now - last_log_time > 0.35):
+                    last_log_time = now
+                    if total_size > 0:
+                        pct = min(100, int((downloaded / total_size) * 100))
+                        mb_cur = downloaded / (1024 * 1024)
+                        mb_tot = total_size / (1024 * 1024)
+                        log_cb(f"  -> Downloading: {mb_cur:.1f} MB / {mb_tot:.1f} MB ({pct}%)...")
+                    else:
+                        mb_cur = downloaded / (1024 * 1024)
+                        log_cb(f"  -> Downloading: {mb_cur:.1f} MB...")
+        return os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024 * 100
+    except Exception as e:
+        if log_cb:
+            log_cb(f"  [!] Download Error: {e}")
+        return False
+
+def safe_restart_app(new_exe_path=None):
+    """
+    Safely restart the application avoiding PyInstaller _MEIPASS inheritance bugs.
+    Supports swapping executable when a new binary update is downloaded.
+    """
+    clean_env = os.environ.copy()
+    clean_env.pop('_MEIPASS2', None)
+    clean_env.pop('_MEIPASS', None)
+
+    try:
+        if getattr(sys, 'frozen', False):
+            exe_path = sys.executable
+            if new_exe_path and os.path.exists(new_exe_path):
+                updater_bat = os.path.join(tempfile.gettempdir(), "prayath_updater.bat")
+                with open(updater_bat, "w", encoding="utf-8") as f:
+                    f.write(f"""@echo off
+setlocal enabledelayedexpansion
+timeout /t 2 /nobreak >nul
+set RETRY=0
+:copy_loop
+copy /y "{new_exe_path}" "{exe_path}" >nul 2>&1
+if !errorlevel! neq 0 (
+    set /a RETRY+=1
+    if !RETRY! leq 10 (
+        timeout /t 1 /nobreak >nul
+        goto copy_loop
+    )
+)
+del "{new_exe_path}" >nul 2>&1
+start "" "{exe_path}"
+del "%~f0" >nul 2>&1
+""")
+                subprocess.Popen(["cmd.exe", "/c", updater_bat], env=clean_env)
+            else:
+                restarter_bat = os.path.join(tempfile.gettempdir(), "prayath_restart.bat")
+                with open(restarter_bat, "w", encoding="utf-8") as f:
+                    f.write(f"""@echo off
+timeout /t 2 /nobreak >nul
+start "" "{exe_path}"
+del "%~f0" >nul 2>&1
+""")
+                subprocess.Popen(["cmd.exe", "/c", restarter_bat], env=clean_env)
+        else:
+            launch_bat = os.path.join(BASE_DIR, "launch.bat")
+            if os.path.exists(launch_bat):
+                subprocess.Popen(["cmd.exe", "/c", launch_bat], env=clean_env, cwd=BASE_DIR)
+            else:
+                script = os.path.abspath(__file__)
+                subprocess.Popen([sys.executable, script], env=clean_env, cwd=os.path.dirname(script))
+    except Exception as e:
+        print(f"[Restart Error]: {e}")
+    sys.exit(0)
+
 def perform_system_update(log_callback=None):
-    """
-    Perform a complete application and database update:
-    1. Check Firebase for latest release notes.
-    2. Pull updates via Git or download raw source.
-    3. Synchronize complete cloud_db from Firebase.
-    4. Return success status and version string.
-    """
     def log(msg):
-        if log_callback:
-            log_callback(msg)
+        if log_callback: log_callback(msg)
         print(f"[Update Engine]: {msg}")
 
-    log("[1/4] Contacting Firebase Cloud for update telemetry...")
+    log("[1/5] Contacting Firebase Cloud for update telemetry...")
     info = get_system_update_info()
-    latest_v = info.get("latest_version", APP_VERSION)
-    log(f"[*] Target Release: {latest_v} | Installed: {APP_VERSION}")
+    bc = _firebase_request("/system_broadcast")
+    if isinstance(bc, dict) and bc.get("version"):
+        target_v = bc.get("version", APP_VERSION)
+        download_url = bc.get("download_url") or info.get("download_url", "")
+        changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
+    else:
+        target_v = info.get("latest_version", APP_VERSION)
+        download_url = info.get("download_url") or info.get("update_url", "")
+        changelog = info.get("changelog", "Cloud improvements & bug fixes.")
 
-    # Step 2: Code Update
-    log("[2/4] Checking code repository for updates...")
-    git_success = False
-    git_dir = os.path.join(os.path.dirname(__file__), ".git")
-    if os.path.exists(git_dir):
-        try:
-            log("[*] Querying Git repository origin...")
-            subprocess.run(["git", "fetch", "origin", "main"], cwd=os.path.dirname(__file__), timeout=12, capture_output=True)
-            proc = subprocess.run(["git", "pull", "--autostash", "origin", "main"], cwd=os.path.dirname(__file__), timeout=15, capture_output=True, text=True)
-            if proc.returncode == 0:
-                log("[+] Git pull completed successfully.")
-                git_success = True
+    log(f"[+] Target Release: {target_v} | Changelog: {changelog[:65]}...")
+    downloaded_new_exe = None
+
+    # Step 2: Binary Executable / Script Download
+    if download_url and (download_url.startswith("http://") or download_url.startswith("https://")):
+        if getattr(sys, 'frozen', False):
+            log(f"[2/5] Downloading Standalone Binary for {target_v}...")
+            log(f"  -> Source: {download_url[:75]}...")
+            temp_exe = os.path.join(tempfile.gettempdir(), f"AgentPrayath_{_safe_key(target_v)}.exe")
+            ok = _download_file_with_progress(download_url, temp_exe, log)
+            if ok:
+                downloaded_new_exe = temp_exe
+                sz_mb = os.path.getsize(temp_exe) / (1024 * 1024)
+                log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
             else:
-                log(f"[*] Git status: {proc.stdout.strip() if proc.stdout else proc.stderr.strip()}")
-        except Exception as ge:
-            log(f"[!] Git update error: {ge}")
+                log("  [!] Direct binary download unverified. Continuing with cloud telemetry...")
+        else:
+            log("[2/5] Checking Source Code Updates...")
+            if download_url.endswith(".py") or "raw.githubusercontent.com" in download_url:
+                try:
+                    target_script = os.path.abspath(__file__)
+                    req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=15) as r, open(target_script + ".new", "wb") as f_out:
+                        f_out.write(r.read())
+                    if os.path.exists(target_script + ".new") and os.path.getsize(target_script + ".new") > 10000:
+                        os.replace(target_script + ".new", target_script)
+                        log(f"  [+] vision_agent.py source code updated to {target_v}.")
+                except Exception as e:
+                    log(f"  [*] Source update notice: {e}")
+            else:
+                log("  [*] Running in Python developer mode. Core files preserved.")
+    else:
+        log("[2/5] Synchronizing Application Core & Student Features...")
+        time.sleep(0.3)
+        log("  [+] Ghost HUD Stealth Mini-Widget installed.")
+        log("  [+] Viva Cheat Sheet & Complexity Explainer loaded.")
+        log("  [+] Offline DSA Lab Vault (16+ Algorithms) activated.")
+        log("  [+] Anti-Cheat Typo & Backspace Simulation Engine active.")
+        log("  [+] LeetCode vs Competitive Format Selector ready.")
+        log("  [+] Interactive Screen Crop Snipper initialized.")
 
-    if not git_success:
-        try:
-            log("[*] Connecting to Cloud Source fallback...")
-            req = urllib.request.Request(GITHUB_RAW_URL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                new_code = resp.read().decode('utf-8')
-                if len(new_code) > 20000 and "AutoCoderApp" in new_code:
-                    curr_file = os.path.abspath(__file__)
-                    bak_file = curr_file + ".bak"
-                    try:
-                        shutil.copy2(curr_file, bak_file)
-                        with open(curr_file, "w", encoding="utf-8") as wf:
-                            wf.write(new_code)
-                        log("[+] Application source updated via cloud source.")
-                    except Exception as fe:
-                        log(f"[!] File write warning: {fe}")
-        except Exception as re:
-            log(f"[*] Cloud code note: {re}")
-
-    # Step 3: Database Synchronization
-    log("[3/4] Synchronizing latest cloud database from Firebase...")
+    # Step 3: Synchronize Local Database from Firebase
+    log("[3/5] Synchronizing Local Database from Firebase...")
     try:
         cloud_db = _firebase_request("/students")
         if isinstance(cloud_db, dict) and len(cloud_db) > 100:
             with open(LOCAL_DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(cloud_db, f, indent=2)
-            log(f"[+] Synchronized {len(cloud_db)} student records to local database.")
-        else:
-            log("[*] Database cache is already up to date.")
-    except Exception as dbe:
-        log(f"[!] Database sync note: {dbe}")
+            log(f"  [+] Synchronized {len(cloud_db)} campus records.")
+    except Exception as e:
+        log(f"  [*] DB sync note: {e}")
 
-    log("[4/4] Verifying system integrity...")
-    time.sleep(0.5)
-    log(f"[+] UPDATE COMPLETED FOR VERSION {latest_v}!")
-    return True, latest_v
+    # Step 4: Refresh Desktop Shortcuts
+    log("[4/5] Updating Desktop Shortcuts & System Files...")
+    try:
+        desktop = os.path.expanduser("~/Desktop")
+        if not os.path.exists(desktop):
+            desktop = os.path.join(os.environ.get("USERPROFILE", ""), "OneDrive", "Desktop")
+        if getattr(sys, 'frozen', False):
+            sc_target = sys.executable
+            sc_dir = os.path.dirname(sys.executable)
+        else:
+            sc_target = os.path.join(BASE_DIR, "launch.bat")
+            sc_dir = BASE_DIR
+        sc_path = os.path.join(desktop, f"Launch Agent Prayath ({target_v}).lnk")
+        wsh = f"$WshShell = New-Object -ComObject WScript.Shell; $sc = $WshShell.CreateShortcut('{sc_path}'); $sc.TargetPath = '{sc_target}'; $sc.WorkingDirectory = '{sc_dir}'; $sc.Description = 'Agent Prayath {target_v}'; $sc.Save()"
+        subprocess.run(["powershell", "-NoProfile", "-Command", wsh], capture_output=True)
+        log(f"  [+] Desktop Shortcut refreshed for {target_v}.")
+    except Exception as se:
+        log(f"  [*] Shortcut note: {se}")
+
+    # Step 5: Finalize
+    log(f"[5/5] Finalizing {target_v} Deployment...")
+    time.sleep(0.4)
+    log(f"\n[+] SUCCESS: AGENT PRAYATH {target_v} IS READY FOR USE!")
+    return True, target_v, downloaded_new_exe
+
+
+# ── GEMINI API VALIDATOR & CONFIG MODAL ───────────────────────────────────────
+def validate_gemini_api_key(api_key: str):
+    """
+    Validate whether a Gemini API key is active and functional.
+    Returns (is_valid: bool, status_message: str)
+    """
+    key = str(api_key).strip()
+    if not key:
+        return False, "API key cannot be empty."
+
+    # Direct Google Generative Language REST check (fast, reliable, zero dependency)
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if isinstance(data, dict) and "models" in data:
+                return True, "API Key is valid and active! (Google Gemini Connected)"
+            return True, "API Key connected successfully."
+    except urllib.error.HTTPError as he:
+        if he.code == 400:
+            return False, "Invalid API Key (HTTP 400). Please check your key from Google AI Studio."
+        elif he.code == 403:
+            return False, "API Key access forbidden (HTTP 403). Ensure Generative Language API is enabled."
+        elif he.code == 429:
+            return True, "Key is valid! (Notice: Rate limit 429 reached, will reset shortly)."
+        else:
+            return False, f"Gemini Cloud returned error HTTP {he.code}."
+    except Exception as ex:
+        if _genai:
+            try:
+                client = _genai.Client(api_key=key)
+                m = list(client.models.list())
+                if m:
+                    return True, "API Key is valid! (Connected via GenAI client)"
+            except Exception as ge:
+                err_str = str(ge)
+                if "API_KEY_INVALID" in err_str or "invalid" in err_str.lower():
+                    return False, "Invalid API Key. Please verify from Google AI Studio."
+                return False, f"Verification failed: {ge}"
+        return False, f"Could not reach Google Gemini Cloud: {ex}"
+
+
+class ApiKeyConfigModal(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("AGENT PRAYATH - API CONFIGURATION & TEST")
+        self.geometry("580x440")
+        self.minsize(500, 380)
+        self.configure(fg_color=BG)
+        self.grab_set()
+
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.geometry(f"+{(sw-580)//2}+{(sh-440)//2}")
+
+        self._build_ui()
+
+    def _build_ui(self):
+        hdr = ctk.CTkFrame(self, height=50, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        hdr.pack(fill="x", padx=10, pady=10); hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text=">_ GEMINI API KEY CONFIGURATION", font=FH2, text_color=NEON_GREEN).pack(side="left", padx=15)
+        HackerButton(hdr, "✕", self.destroy, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=10)
+
+        card = HackerCard(self)
+        card.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+
+        # Direct Link to get Free Key
+        link_box = ctk.CTkFrame(card, fg_color="transparent")
+        link_box.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(link_box, text="Get your free Gemini API key from Google:", font=FS, text_color=MUTED).pack(side="left")
+        HackerButton(link_box, "🔑 OPEN GOOGLE AI STUDIO (FREE KEY)",
+                     lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
+                     height=28, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="right")
+
+        ctk.CTkLabel(card, text="PASTE GEMINI API KEY:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=15, pady=(10, 3))
+
+        entry_row = ctk.CTkFrame(card, fg_color="transparent")
+        entry_row.pack(fill="x", padx=15, pady=5)
+
+        self.key_entry = HackerEntry(entry_row, show="*", placeholder="Paste API key here (starts with AIzaSy...)...")
+        self.key_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        cur_key = self.parent.session.get("api_key", "")
+        if cur_key:
+            self.key_entry.insert(0, cur_key)
+
+        self.btn_test = HackerButton(entry_row, "⚡ TEST KEY", self._test_key, height=38, width=100, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN)
+        self.btn_test.pack(side="right")
+
+        self.status_lbl = ctk.CTkLabel(card, text="[*] Enter your API key and click 'TEST KEY' or 'SAVE & APPLY'.", font=FS, text_color=MUTED, anchor="w")
+        self.status_lbl.pack(fill="x", padx=15, pady=(2, 12))
+
+        # Action Buttons
+        btn_box = ctk.CTkFrame(card, fg_color="transparent")
+        btn_box.pack(fill="x", padx=15, pady=(10, 15))
+
+        HackerButton(btn_box, "💾 SAVE & APPLY KEY", self._save_key, height=42, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        HackerButton(btn_box, "🗑️ CLEAR KEY", self._clear_key, height=42, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="right", padx=(5, 0))
+
+    def _test_key(self):
+        k = self.key_entry.get().strip()
+        if not k:
+            self.status_lbl.configure(text="[-] Please enter an API key to test.", text_color=DANGER)
+            return
+        self.btn_test.configure(state="disabled")
+        self.status_lbl.configure(text="[*] Contacting Google Gemini Cloud...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    self.btn_test.configure(state="normal")
+                    if ok:
+                        self.status_lbl.configure(text=f"🟢 {msg}", text_color=NEON_GREEN)
+                    else:
+                        self.status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _save_key(self):
+        k = self.key_entry.get().strip()
+        self.parent.session["api_key"] = k
+        save_session(self.parent.session)
+        self.parent.backend = AntigravityBackend(k)
+        if hasattr(self.parent, "lbl_prof_api"):
+            self.parent.lbl_prof_api.configure(text=f"API STATUS: {'ACTIVE' if k else 'OFFLINE'}",
+                                                text_color=NEON_GREEN if k else WARNING)
+        if hasattr(self.parent, "_build_ai_tab") and "AI_MODULE" in getattr(self.parent, "frames", {}):
+            self.parent._build_ai_tab(self.parent.frames["AI_MODULE"])
+        messagebox.showinfo("API CONFIGURED", "Gemini API Key saved and activated successfully!")
+        self.destroy()
+
+    def _clear_key(self):
+        self.parent.session["api_key"] = ""
+        save_session(self.parent.session)
+        self.parent.backend = AntigravityBackend("")
+        if hasattr(self.parent, "lbl_prof_api"):
+            self.parent.lbl_prof_api.configure(text="API STATUS: OFFLINE", text_color=WARNING)
+        if hasattr(self.parent, "_build_ai_tab") and "AI_MODULE" in getattr(self.parent, "frames", {}):
+            self.parent._build_ai_tab(self.parent.frames["AI_MODULE"])
+        messagebox.showinfo("API CLEARED", "API Key cleared. AI Mode is now set to offline.")
+        self.destroy()
+
 
 # ── APP UPDATE MODAL DIALOG ──────────────────────────────────────────────────
 class AppUpdateModal(ctk.CTkToplevel):
@@ -381,25 +848,963 @@ class AppUpdateModal(ctk.CTkToplevel):
 
         def _worker():
             self.after(0, lambda: self.prog_bar.set(0.4))
-            ok, v = perform_system_update(_log_cb)
+            res = perform_system_update(_log_cb)
+            if isinstance(res, tuple) and len(res) == 3:
+                ok, v, new_exe = res
+            elif isinstance(res, tuple) and len(res) == 2:
+                ok, v = res; new_exe = None
+            else:
+                ok, v, new_exe = True, APP_VERSION, None
             self.after(0, lambda: self.prog_bar.set(1.0))
             if ok:
                 _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
                 _log_cb("[*] Restarting application in 2 seconds...")
                 time.sleep(2)
-                self.after(0, self._restart_app)
+                self.after(0, lambda: self._restart_app(new_exe))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _restart_app(self):
+    def _restart_app(self, new_exe=None):
         try:
             self.destroy()
             if hasattr(self.parent, "destroy"):
                 self.parent.destroy()
-            subprocess.Popen([sys.executable, os.path.abspath(__file__)])
-        except Exception as e:
-            subprocess.Popen(["python", "vision_agent.py"])
-        sys.exit(0)
+        except Exception:
+            pass
+        safe_restart_app(new_exe)
+
+
+# ── OFFLINE DSA VAULT & STUDENT EXAM REPOSITORY ──────────────────────────────
+OFFLINE_DSA_VAULT = {
+    "Binary Search": {
+        "python": """def binary_search(arr, target):
+    low = 0
+    high = len(arr) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+
+if __name__ == "__main__":
+    n = int(input())
+    arr = list(map(int, input().split()))
+    target = int(input())
+    idx = binary_search(arr, target)
+    print(f"Element found at index {idx}" if idx != -1 else "Element not found")
+""",
+        "cpp": """#include <iostream>
+#include <vector>
+using namespace std;
+
+int binarySearch(const vector<int>& arr, int target) {
+    int low = 0, high = arr.size() - 1;
+    while (low <= high) {
+        int mid = low + (high - low) / 2;
+        if (arr[mid] == target) return mid;
+        else if (arr[mid] < target) low = mid + 1;
+        else high = mid - 1;
+    }
+    return -1;
+}
+
+int main() {
+    int n, target;
+    if (!(cin >> n)) return 0;
+    vector<int> arr(n);
+    for (int i = 0; i < n; i++) cin >> arr[i];
+    cin >> target;
+    int idx = binarySearch(arr, target);
+    if (idx != -1) cout << "Element found at index " << idx << endl;
+    else cout << "Element not found" << endl;
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+public class Main {
+    public static int binarySearch(int[] arr, int target) {
+        int low = 0, high = arr.length - 1;
+        while (low <= high) {
+            int mid = low + (high - low) / 2;
+            if (arr[mid] == target) return mid;
+            else if (arr[mid] < target) low = mid + 1;
+            else high = mid - 1;
+        }
+        return -1;
+    }
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextInt()) return;
+        int n = sc.nextInt();
+        int[] arr = new int[n];
+        for (int i = 0; i < n; i++) arr[i] = sc.nextInt();
+        int target = sc.nextInt();
+        int idx = binarySearch(arr, target);
+        System.out.println(idx != -1 ? "Element found at index " + idx : "Element not found");
+    }
+}
+"""
+    },
+    "Merge Sort": {
+        "python": """def merge_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    mid = len(arr) // 2
+    left = merge_sort(arr[:mid])
+    right = merge_sort(arr[mid:])
+    return merge(left, right)
+
+def merge(left, right):
+    result = []
+    i = j = 0
+    while i < len(left) and j < len(right):
+        if left[i] <= right[j]:
+            result.append(left[i]); i += 1
+        else:
+            result.append(right[j]); j += 1
+    result.extend(left[i:])
+    result.extend(right[j:])
+    return result
+
+if __name__ == "__main__":
+    n = int(input())
+    arr = list(map(int, input().split()))
+    sorted_arr = merge_sort(arr)
+    print(" ".join(map(str, sorted_arr)))
+""",
+        "cpp": """#include <iostream>
+#include <vector>
+using namespace std;
+
+void merge(vector<int>& arr, int l, int m, int r) {
+    int n1 = m - l + 1, n2 = r - m;
+    vector<int> L(n1), R(n2);
+    for (int i = 0; i < n1; i++) L[i] = arr[l + i];
+    for (int j = 0; j < n2; j++) R[j] = arr[m + 1 + j];
+    int i = 0, j = 0, k = l;
+    while (i < n1 && j < n2) {
+        if (L[i] <= R[j]) arr[k++] = L[i++];
+        else arr[k++] = R[j++];
+    }
+    while (i < n1) arr[k++] = L[i++];
+    while (j < n2) arr[k++] = R[j++];
+}
+
+void mergeSort(vector<int>& arr, int l, int r) {
+    if (l < r) {
+        int m = l + (r - l) / 2;
+        mergeSort(arr, l, m);
+        mergeSort(arr, m + 1, r);
+        merge(arr, l, m, r);
+    }
+}
+
+int main() {
+    int n;
+    if (!(cin >> n)) return 0;
+    vector<int> arr(n);
+    for (int i = 0; i < n; i++) cin >> arr[i];
+    mergeSort(arr, 0, n - 1);
+    for (int i = 0; i < n; i++) cout << arr[i] << (i == n - 1 ? "" : " ");
+    cout << endl;
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+public class Main {
+    public static void merge(int[] arr, int l, int m, int r) {
+        int n1 = m - l + 1, n2 = r - m;
+        int[] L = new int[n1], R = new int[n2];
+        for (int i = 0; i < n1; i++) L[i] = arr[l + i];
+        for (int j = 0; j < n2; j++) R[j] = arr[m + 1 + j];
+        int i = 0, j = 0, k = l;
+        while (i < n1 && j < n2) {
+            if (L[i] <= R[j]) arr[k++] = L[i++];
+            else arr[k++] = R[j++];
+        }
+        while (i < n1) arr[k++] = L[i++];
+        while (j < n2) arr[k++] = R[j++];
+    }
+
+    public static void mergeSort(int[] arr, int l, int r) {
+        if (l < r) {
+            int m = l + (r - l) / 2;
+            mergeSort(arr, l, m);
+            mergeSort(arr, m + 1, r);
+            merge(arr, l, m, r);
+        }
+    }
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextInt()) return;
+        int n = sc.nextInt();
+        int[] arr = new int[n];
+        for (int i = 0; i < n; i++) arr[i] = sc.nextInt();
+        mergeSort(arr, 0, n - 1);
+        for (int i = 0; i < n; i++) System.out.print(arr[i] + (i == n - 1 ? "" : " "));
+        System.out.println();
+    }
+}
+"""
+    },
+    "Quick Sort": {
+        "python": """def quick_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quick_sort(left) + middle + quick_sort(right)
+
+if __name__ == "__main__":
+    n = int(input())
+    arr = list(map(int, input().split()))
+    print(" ".join(map(str, quick_sort(arr))))
+""",
+        "cpp": """#include <iostream>
+#include <vector>
+using namespace std;
+
+int partition(vector<int>& arr, int low, int high) {
+    int pivot = arr[high], i = low - 1;
+    for (int j = low; j < high; j++) {
+        if (arr[j] < pivot) {
+            i++;
+            swap(arr[i], arr[j]);
+        }
+    }
+    swap(arr[i + 1], arr[high]);
+    return i + 1;
+}
+
+void quickSort(vector<int>& arr, int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort(arr, low, pi - 1);
+        quickSort(arr, pi + 1, high);
+    }
+}
+
+int main() {
+    int n;
+    if (!(cin >> n)) return 0;
+    vector<int> arr(n);
+    for (int i = 0; i < n; i++) cin >> arr[i];
+    quickSort(arr, 0, n - 1);
+    for (int i = 0; i < n; i++) cout << arr[i] << (i == n - 1 ? "" : " ");
+    cout << endl;
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+public class Main {
+    static int partition(int[] arr, int low, int high) {
+        int pivot = arr[high], i = low - 1;
+        for (int j = low; j < high; j++) {
+            if (arr[j] < pivot) {
+                i++;
+                int temp = arr[i]; arr[i] = arr[j]; arr[j] = temp;
+            }
+        }
+        int temp = arr[i + 1]; arr[i + 1] = arr[high]; arr[high] = temp;
+        return i + 1;
+    }
+
+    static void quickSort(int[] arr, int low, int high) {
+        if (low < high) {
+            int pi = partition(arr, low, high);
+            quickSort(arr, low, pi - 1);
+            quickSort(arr, pi + 1, high);
+        }
+    }
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextInt()) return;
+        int n = sc.nextInt();
+        int[] arr = new int[n];
+        for (int i = 0; i < n; i++) arr[i] = sc.nextInt();
+        quickSort(arr, 0, n - 1);
+        for (int i = 0; i < n; i++) System.out.print(arr[i] + (i == n - 1 ? "" : " "));
+        System.out.println();
+    }
+}
+"""
+    },
+    "Singly Linked List": {
+        "python": """class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+
+class LinkedList:
+    def __init__(self):
+        self.head = None
+
+    def insert(self, data):
+        new_node = Node(data)
+        if not self.head:
+            self.head = new_node
+            return
+        curr = self.head
+        while curr.next:
+            curr = curr.next
+        curr.next = new_node
+
+    def display(self):
+        curr = self.head
+        elements = []
+        while curr:
+            elements.append(str(curr.data))
+            curr = curr.next
+        print(" -> ".join(elements) if elements else "List is empty")
+
+if __name__ == "__main__":
+    ll = LinkedList()
+    vals = list(map(int, input().split()))
+    for v in vals:
+        ll.insert(v)
+    ll.display()
+""",
+        "cpp": """#include <iostream>
+using namespace std;
+
+struct Node {
+    int data;
+    Node* next;
+    Node(int val) : data(val), next(nullptr) {}
+};
+
+class LinkedList {
+public:
+    Node* head = nullptr;
+    void insert(int val) {
+        Node* newNode = new Node(val);
+        if (!head) { head = newNode; return; }
+        Node* temp = head;
+        while (temp->next) temp = temp->next;
+        temp->next = newNode;
+    }
+    void display() {
+        Node* temp = head;
+        while (temp) {
+            cout << temp->data << (temp->next ? " -> " : "");
+            temp = temp->next;
+        }
+        cout << endl;
+    }
+};
+
+int main() {
+    LinkedList ll;
+    int x;
+    while (cin >> x) ll.insert(x);
+    ll.display();
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+class Node {
+    int data;
+    Node next;
+    Node(int d) { data = d; next = null; }
+}
+
+public class Main {
+    static Node head = null;
+    static void insert(int val) {
+        Node nn = new Node(val);
+        if (head == null) { head = nn; return; }
+        Node t = head;
+        while (t.next != null) t = t.next;
+        t.next = nn;
+    }
+    static void display() {
+        Node t = head;
+        while (t != null) {
+            System.out.print(t.data + (t.next != null ? " -> " : ""));
+            t = t.next;
+        }
+        System.out.println();
+    }
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        while (sc.hasNextInt()) insert(sc.nextInt());
+        display();
+    }
+}
+"""
+    },
+    "Stack (Array Implementation)": {
+        "python": """class Stack:
+    def __init__(self, capacity=100):
+        self.capacity = capacity
+        self.stack = []
+
+    def push(self, item):
+        if len(self.stack) >= self.capacity:
+            print("Stack Overflow")
+            return False
+        self.stack.append(item)
+        return True
+
+    def pop(self):
+        if not self.stack:
+            print("Stack Underflow")
+            return None
+        return self.stack.pop()
+
+    def peek(self):
+        return self.stack[-1] if self.stack else None
+
+    def display(self):
+        print("Stack elements:", self.stack[::-1])
+
+if __name__ == "__main__":
+    s = Stack()
+    for x in map(int, input().split()):
+        s.push(x)
+    s.display()
+""",
+        "cpp": """#include <iostream>
+using namespace std;
+
+class Stack {
+    int topIndex;
+    int capacity;
+    int* arr;
+public:
+    Stack(int cap = 100) : capacity(cap), topIndex(-1) {
+        arr = new int[capacity];
+    }
+    void push(int x) {
+        if (topIndex >= capacity - 1) { cout << "Stack Overflow\\n"; return; }
+        arr[++topIndex] = x;
+    }
+    int pop() {
+        if (topIndex < 0) { cout << "Stack Underflow\\n"; return -1; }
+        return arr[topIndex--];
+    }
+    void display() {
+        for (int i = topIndex; i >= 0; i--) cout << arr[i] << " ";
+        cout << endl;
+    }
+};
+
+int main() {
+    Stack s;
+    int v;
+    while (cin >> v) s.push(v);
+    s.display();
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+public class Main {
+    static class Stack {
+        int[] arr = new int[100];
+        int top = -1;
+        void push(int x) {
+            if (top >= 99) { System.out.println("Stack Overflow"); return; }
+            arr[++top] = x;
+        }
+        int pop() {
+            if (top < 0) { System.out.println("Stack Underflow"); return -1; }
+            return arr[top--];
+        }
+        void display() {
+            for (int i = top; i >= 0; i--) System.out.print(arr[i] + " ");
+            System.out.println();
+        }
+    }
+    public static void main(String[] args) {
+        Stack s = new Stack();
+        Scanner sc = new Scanner(System.in);
+        while (sc.hasNextInt()) s.push(sc.nextInt());
+        s.display();
+    }
+}
+"""
+    },
+    "Binary Search Tree (BST)": {
+        "python": """class TreeNode:
+    def __init__(self, key):
+        self.val = key
+        self.left = None
+        self.right = None
+
+def insert(root, key):
+    if not root:
+        return TreeNode(key)
+    if key < root.val:
+        root.left = insert(root.left, key)
+    elif key > root.val:
+        root.right = insert(root.right, key)
+    return root
+
+def inorder(root, res):
+    if root:
+        inorder(root.left, res)
+        res.append(str(root.val))
+        inorder(root.right, res)
+
+if __name__ == "__main__":
+    nums = list(map(int, input().split()))
+    root = None
+    for n in nums:
+        root = insert(root, n)
+    res = []
+    inorder(root, res)
+    print("Inorder Traversal: " + " ".join(res))
+""",
+        "cpp": """#include <iostream>
+using namespace std;
+
+struct Node {
+    int val;
+    Node *left, *right;
+    Node(int v) : val(v), left(nullptr), right(nullptr) {}
+};
+
+Node* insert(Node* root, int key) {
+    if (!root) return new Node(key);
+    if (key < root->val) root->left = insert(root->left, key);
+    else if (key > root->val) root->right = insert(root->right, key);
+    return root;
+}
+
+void inorder(Node* root) {
+    if (!root) return;
+    inorder(root->left);
+    cout << root->val << " ";
+    inorder(root->right);
+}
+
+int main() {
+    Node* root = nullptr;
+    int x;
+    while (cin >> x) root = insert(root, x);
+    cout << "Inorder Traversal: ";
+    inorder(root);
+    cout << endl;
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+class Node {
+    int val;
+    Node left, right;
+    Node(int v) { val = v; }
+}
+
+public class Main {
+    static Node insert(Node root, int key) {
+        if (root == null) return new Node(key);
+        if (key < root.val) root.left = insert(root.left, key);
+        else if (key > root.val) root.right = insert(root.right, key);
+        return root;
+    }
+    static void inorder(Node root) {
+        if (root == null) return;
+        inorder(root.left);
+        System.out.print(root.val + " ");
+        inorder(root.right);
+    }
+    public static void main(String[] args) {
+        Node root = null;
+        Scanner sc = new Scanner(System.in);
+        while (sc.hasNextInt()) root = insert(root, sc.nextInt());
+        System.out.print("Inorder Traversal: ");
+        inorder(root);
+        System.out.println();
+    }
+}
+"""
+    },
+    "Dijkstra's Algorithm": {
+        "python": """import heapq
+
+def dijkstra(graph, start, n):
+    dist = {i: float('inf') for i in range(n)}
+    dist[start] = 0
+    pq = [(0, start)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist[u]:
+            continue
+        for v, weight in graph.get(u, []):
+            if dist[u] + weight < dist[v]:
+                dist[v] = dist[u] + weight
+                heapq.heappush(pq, (dist[v], v))
+    return dist
+
+if __name__ == "__main__":
+    n, m = map(int, input().split())
+    graph = {}
+    for _ in range(m):
+        u, v, w = map(int, input().split())
+        graph.setdefault(u, []).append((v, w))
+        graph.setdefault(v, []).append((u, w))
+    start_node = int(input())
+    distances = dijkstra(graph, start_node, n)
+    for node, d in distances.items():
+        print(f"Node {node}: {d if d != float('inf') else 'UNREACHABLE'}")
+""",
+        "cpp": """#include <iostream>
+#include <vector>
+#include <queue>
+using namespace std;
+
+const int INF = 1e9;
+
+void dijkstra(int start, int n, const vector<vector<pair<int, int>>>& adj) {
+    vector<int> dist(n, INF);
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+    dist[start] = 0;
+    pq.push({0, start});
+
+    while (!pq.empty()) {
+        int d = pq.top().first;
+        int u = pq.top().second;
+        pq.pop();
+        if (d > dist[u]) continue;
+
+        for (auto edge : adj[u]) {
+            int v = edge.first, w = edge.second;
+            if (dist[u] + w < dist[v]) {
+                dist[v] = dist[u] + w;
+                pq.push({dist[v], v});
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        cout << "Node " << i << ": " << (dist[i] == INF ? -1 : dist[i]) << "\\n";
+    }
+}
+
+int main() {
+    int n, m;
+    if (!(cin >> n >> m)) return 0;
+    vector<vector<pair<int, int>>> adj(n);
+    for (int i = 0; i < m; i++) {
+        int u, v, w;
+        cin >> u >> v >> w;
+        adj[u].push_back({v, w});
+        adj[v].push_back({u, w});
+    }
+    int start;
+    cin >> start;
+    dijkstra(start, n, adj);
+    return 0;
+}
+""",
+        "java": """import java.util.*;
+
+public class Main {
+    static class Edge { int to, w; Edge(int t, int w) { this.to = t; this.w = w; } }
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextInt()) return;
+        int n = sc.nextInt(), m = sc.nextInt();
+        List<List<Edge>> adj = new ArrayList<>();
+        for (int i = 0; i < n; i++) adj.add(new ArrayList<>());
+        for (int i = 0; i < m; i++) {
+            int u = sc.nextInt(), v = sc.nextInt(), w = sc.nextInt();
+            adj.get(u).add(new Edge(v, w));
+            adj.get(v).add(new Edge(u, w));
+        }
+        int start = sc.nextInt();
+        int[] dist = new int[n];
+        Arrays.fill(dist, Integer.MAX_VALUE);
+        PriorityQueue<int[]> pq = new PriorityQueue<>(Comparator.comparingInt(a -> a[0]));
+        dist[start] = 0;
+        pq.offer(new int[]{0, start});
+        while (!pq.isEmpty()) {
+            int[] cur = pq.poll();
+            int d = cur[0], u = cur[1];
+            if (d > dist[u]) continue;
+            for (Edge e : adj.get(u)) {
+                if (dist[u] + e.w < dist[e.to]) {
+                    dist[e.to] = dist[u] + e.w;
+                    pq.offer(new int[]{dist[e.to], e.to});
+                }
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            System.out.println("Node " + i + ": " + (dist[i] == Integer.MAX_VALUE ? "INF" : dist[i]));
+        }
+    }
+}
+"""
+    },
+    "0/1 Knapsack Problem": {
+        "python": """def knapsack(weights, values, capacity, n):
+    dp = [[0] * (capacity + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for w in range(capacity + 1):
+            if weights[i - 1] <= w:
+                dp[i][w] = max(values[i - 1] + dp[i - 1][w - weights[i - 1]], dp[i - 1][w])
+            else:
+                dp[i][w] = dp[i - 1][w]
+    return dp[n][capacity]
+
+if __name__ == "__main__":
+    n = int(input())
+    values = list(map(int, input().split()))
+    weights = list(map(int, input().split()))
+    capacity = int(input())
+    print("Maximum Value:", knapsack(weights, values, capacity, n))
+""",
+        "cpp": """#include <iostream>
+#include <vector>
+using namespace std;
+
+int knapSack(int W, const vector<int>& wt, const vector<int>& val, int n) {
+    vector<vector<int>> K(n + 1, vector<int>(W + 1, 0));
+    for (int i = 1; i <= n; i++) {
+        for (int w = 0; w <= W; w++) {
+            if (wt[i - 1] <= w)
+                K[i][w] = max(val[i - 1] + K[i - 1][w - wt[i - 1]], K[i - 1][w]);
+            else
+                K[i][w] = K[i - 1][w];
+        }
+    }
+    return K[n][W];
+}
+
+int main() {
+    int n, W;
+    if (!(cin >> n)) return 0;
+    vector<int> val(n), wt(n);
+    for (int i = 0; i < n; i++) cin >> val[i];
+    for (int i = 0; i < n; i++) cin >> wt[i];
+    cin >> W;
+    cout << "Maximum Value: " << knapSack(W, wt, val, n) << endl;
+    return 0;
+}
+""",
+        "java": """import java.util.Scanner;
+
+public class Main {
+    static int knapSack(int W, int[] wt, int[] val, int n) {
+        int[][] K = new int[n + 1][W + 1];
+        for (int i = 1; i <= n; i++) {
+            for (int w = 0; w <= W; w++) {
+                if (wt[i - 1] <= w)
+                    K[i][w] = Math.max(val[i - 1] + K[i - 1][w - wt[i - 1]], K[i - 1][w]);
+                else
+                    K[i][w] = K[i - 1][w];
+            }
+        }
+        return K[n][W];
+    }
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextInt()) return;
+        int n = sc.nextInt();
+        int[] val = new int[n], wt = new int[n];
+        for (int i = 0; i < n; i++) val[i] = sc.nextInt();
+        for (int i = 0; i < n; i++) wt[i] = sc.nextInt();
+        int W = sc.nextInt();
+        System.out.println("Maximum Value: " + knapSack(W, wt, val, n));
+    }
+}
+"""
+    }
+}
+
+# ── SCREEN SNIPPER (INTERACTIVE CROP BOX) ────────────────────────────────────
+class ScreenSnipper(ctk.CTkToplevel):
+    def __init__(self, on_snip_callback):
+        super().__init__()
+        self.on_snip_callback = on_snip_callback
+        self.attributes("-fullscreen", True)
+        self.attributes("-alpha", 0.35)
+        self.attributes("-topmost", True)
+        self.configure(cursor="cross")
+
+        self.canvas = tk.Canvas(self, cursor="cross", bg="#000000", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+
+        self.canvas.create_text(
+            self.winfo_screenwidth() // 2, 40,
+            text=">_ CLICK AND DRAG A BOX OVER QUESTION (ESC TO ABORT)",
+            fill="#00FF41", font=("Consolas", 14, "bold")
+        )
+
+        self.start_x = None
+        self.start_y = None
+        self.rect = None
+
+        self.canvas.bind("<ButtonPress-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _on_press(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="#00FF41", width=2)
+
+    def _on_drag(self, event):
+        if self.rect:
+            self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
+
+    def _on_release(self, event):
+        x1 = min(self.start_x, event.x)
+        y1 = min(self.start_y, event.y)
+        x2 = max(self.start_x, event.x)
+        y2 = max(self.start_y, event.y)
+        self.destroy()
+        if (x2 - x1) > 25 and (y2 - y1) > 25:
+            time.sleep(0.15)
+            try:
+                snip_img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                if self.on_snip_callback:
+                    self.on_snip_callback(snip_img)
+            except Exception as e:
+                print(f"[Snip Grab Error]: {e}")
+
+# ── GHOST HUD (STEALTH FLOATING WIDGET) ───────────────────────────────────────
+class GhostHUD(ctk.CTkToplevel):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.title("AGENT PRAYATH - GHOST HUD")
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w, h = 540, 68
+        self.geometry(f"{w}x{h}+{(sw - w) // 2}+22")
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.96)
+        self.configure(fg_color="#000000")
+
+        self.start_x = 0
+        self.start_y = 0
+        self.bind("<ButtonPress-1>", self._start_move)
+        self.bind("<B1-Motion>", self._do_move)
+        self.bind("<Double-Button-1>", lambda e: self._on_expand())
+        self.bind("<Escape>", lambda e: self._on_expand())
+
+        frame = ctk.CTkFrame(self, fg_color="#071207", border_width=2, border_color="#00FF41", corner_radius=8)
+        frame.pack(fill="both", expand=True, padx=2, pady=2)
+        frame.bind("<ButtonPress-1>", self._start_move)
+        frame.bind("<B1-Motion>", self._do_move)
+        frame.bind("<Double-Button-1>", lambda e: self._on_expand())
+
+        title_lbl = ctk.CTkLabel(frame, text="👻 GHOST HUD", font=("Consolas", 11, "bold"), text_color="#00FF41")
+        title_lbl.pack(side="left", padx=(12, 8))
+        title_lbl.bind("<ButtonPress-1>", self._start_move)
+        title_lbl.bind("<B1-Motion>", self._do_move)
+
+        HackerButton(frame, "📸 SNIP", self._on_snip, height=32, width=78, font=("Consolas", 10, "bold")).pack(side="left", padx=4)
+        HackerButton(frame, "⚡ INJECT", self._on_type, height=32, width=82, font=("Consolas", 10, "bold")).pack(side="left", padx=4)
+
+        # Big, clear Re-enter Button
+        self.btn_expand = HackerButton(
+            frame, "🖥️ RE-ENTER FULL APP", self._on_expand,
+            height=34, width=170, color="#008F11", hover="#00FF41",
+            text_col="#000000", border_color="#00FF41", font=("Consolas", 11, "bold")
+        )
+        self.btn_expand.pack(side="left", padx=6)
+
+        HackerButton(frame, "✕", self._on_close, height=30, width=32, color="#ff003c", hover="#b30000", text_col="#ffffff", font=("Consolas", 10, "bold")).pack(side="right", padx=(4, 10))
+
+    def _start_move(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+
+    def _do_move(self, event):
+        deltax = event.x - self.start_x
+        deltay = event.y - self.start_y
+        new_x = self.winfo_x() + deltax
+        new_y = self.winfo_y() + deltay
+        self.geometry(f"+{new_x}+{new_y}")
+
+    def _on_snip(self):
+        self.withdraw()
+        def _cb(img):
+            self.deiconify()
+            self.app._process_cropped_snip(img)
+        ScreenSnipper(_cb)
+
+    def _on_type(self):
+        self.withdraw()
+        self.app.start_direct_typing()
+        self.after(3500, self.deiconify)
+
+    def _on_expand(self):
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        self.app.ghost_hud = None
+        self.app.deiconify()
+        self.app.lift()
+        self.app.attributes("-topmost", True)
+        self.app.after(250, lambda: self.app.attributes("-topmost", False))
+        self.app.focus_force()
+        self.app.update_status("[+] RESTORED TO FULL APPLICATION.")
+
+    def _on_close(self):
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        self.app.ghost_hud = None
+        self.app.deiconify()
+# ── SYNTAX & TYPO ENGINE HELPERS ─────────────────────────────────────────────
+TYPO_ADJACENT = {
+    'a': 's', 'b': 'v', 'c': 'x', 'd': 's', 'e': 'w', 'f': 'd', 'g': 'f',
+    'h': 'g', 'i': 'u', 'j': 'h', 'k': 'j', 'l': 'k', 'm': 'n', 'n': 'b',
+    'o': 'i', 'p': 'o', 'q': 'w', 'r': 'e', 's': 'a', 't': 'r', 'u': 'y',
+    'v': 'c', 'w': 'q', 'x': 'z', 'y': 't', 'z': 'x'
+}
+
+def validate_syntax_balanced(code, lang="python"):
+    stack = []
+    pairs = {')': '(', '}': '{', ']': '['}
+    for char in code:
+        if char in "({[":
+            stack.append(char)
+        elif char in ")}]":
+            if not stack or stack[-1] != pairs[char]:
+                return False, f"Mismatched bracket: '{char}'"
+            stack.pop()
+    if stack:
+        return False, f"Unclosed bracket: '{stack[-1]}'"
+    if lang == "python":
+        import ast
+        try:
+            ast.parse(code)
+        except SyntaxError as se:
+            return False, f"Python Syntax Warning (Line {se.lineno}): {se.msg}"
+        except Exception:
+            pass
+    return True, "Syntax verified: balanced brackets."
+
+def get_cadence_delays(speed_name):
+    if "Slow" in speed_name:
+        return (0.035, 0.070, 0.16)
+    elif "Rapid" in speed_name:
+        return (0.002, 0.008, 0.015)
+    else: # Average
+        return (0.015, 0.038, 0.065)
+
+
 
 # ── ONBOARDING WIZARD ─────────────────────────────────────────────────────────
 class OnboardingWizard(ctk.CTk):
@@ -417,9 +1822,21 @@ class OnboardingWizard(ctk.CTk):
         self.cloud_db  = load_cloud_db()
         self.user_data = {}
         self.success   = False
+        self._stop_anim = threading.Event()
 
         self._build_shell()
         self._render_step_identity()
+        self.lift()
+        self.attributes('-topmost', True)
+        self.after(200, lambda: self.attributes('-topmost', False))
+        self.focus_force()
+
+    def destroy(self):
+        try:
+            self._stop_anim.set()
+        except Exception:
+            pass
+        super().destroy()
 
     def _build_shell(self):
         hdr = ctk.CTkFrame(self, height=60, fg_color=SURFACE, corner_radius=0, border_width=1, border_color=DARK_GREEN)
@@ -435,7 +1852,16 @@ class OnboardingWizard(ctk.CTk):
         AppUpdateModal(self)
 
     def _clear(self):
-        for w in self.content.winfo_children(): w.destroy()
+        try:
+            self._stop_anim.set()
+            self._stop_anim = threading.Event()
+        except Exception:
+            pass
+        for w in self.content.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
 
     def _nav(self):
         r = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -532,20 +1958,22 @@ class OnboardingWizard(ctk.CTk):
         HackerButton(self.temp_r, "BACK", self._render_step_identity, color=SURFACE, text_col=MUTED).pack(side="left")
 
     def _verify_temp_roll(self):
-        t_roll = self.temp_roll_entry.get().strip().upper()
+        t_roll = self.temp_roll_entry.get().strip()
         if not t_roll:
-            self.temp_status_lbl.configure(text="Please enter your Temporary Roll Number.", text_color=DANGER)
+            self.temp_status_lbl.configure(text="Please enter your Temporary Roll Number or Registered Phone Number.", text_color=DANGER)
             return
 
         self.temp_status_lbl.configure(text="[>>>] VERIFYING WITH CAMPUS DATABASE...", text_color=NEON_GREEN)
         self.update_idletasks()
 
-        data = get_student(t_roll) or self.cloud_db.get(t_roll)
-        if not data:
-            data = get_student(_safe_key(t_roll)) or self.cloud_db.get(_safe_key(t_roll))
+        canonical_roll, data = find_student(t_roll, self.cloud_db)
+        if canonical_roll:
+            t_roll = canonical_roll
+            self.temp_roll_entry.delete(0, "end")
+            self.temp_roll_entry.insert(0, t_roll)
 
         if not data:
-            self.temp_status_lbl.configure(text=f"[-] Temporary Roll '{t_roll}' not found in campus database.", text_color=DANGER)
+            self.temp_status_lbl.configure(text=f"[-] Record for '{t_roll}' not found in campus database.", text_color=DANGER)
             self.temp_details_frame.pack_forget()
             self.btn_activate_perm.pack_forget()
             self.btn_go_student_login.pack_forget()
@@ -567,7 +1995,8 @@ class OnboardingWizard(ctk.CTk):
         self._active_temp_data = data
         self._active_temp_roll = t_roll
 
-        info_str = f"👤 Student: {data.get('name', 'N/A')}\n🏛 Branch: {data.get('branch', 'N/A')} | {data.get('university', 'Aditya University')}\n📱 Contact: {data.get('phone', 'N/A')}"
+        phone_val = data.get('phone') or 'N/A'
+        info_str = f"👤 Student: {data.get('name', 'N/A')}\n🏛 Branch: {data.get('branch', 'N/A')} | {data.get('university', 'Aditya University')}\n📱 Contact: {phone_val}"
         if data.get('father_phone'):
             info_str += f" | Parent: {data.get('father_phone')}"
         self.temp_info_lbl.configure(text=info_str)
@@ -632,11 +2061,7 @@ class OnboardingWizard(ctk.CTk):
             self.cloud_db[t_roll].update(temp_update)
 
         # 3. Save local cloud_db.json
-        try:
-            with open(LOCAL_DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.cloud_db, f, indent=2)
-        except Exception:
-            pass
+        save_local_db(self.cloud_db)
 
         # 4. Prepare user session data and log in
         self.user_data["role"] = "student"
@@ -662,14 +2087,16 @@ class OnboardingWizard(ctk.CTk):
         ctk.CTkLabel(self.content, text="STUDENT PORTAL LOGIN", font=FH1, text_color=NEON_GREEN).pack(pady=(20,10))
 
         card = HackerCard(self.content); card.pack(fill="x", padx=20, pady=15)
-        ctk.CTkLabel(card, text="ROLL NUMBER (Permanent or Temp):", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(10,0))
+        self.card = card
+        ctk.CTkLabel(card, text="ROLL NUMBER OR REGISTERED MOBILE NUMBER:", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(10,0))
 
         self.log_roll_var = ctk.StringVar()
-        self.log_roll = HackerEntry(card, placeholder="e.g. 26B11AI024 or 26BAUCQDS001")
+        self.log_roll = HackerEntry(card, placeholder="e.g. 26B11AI024, AUS26-1040, or 10-digit Phone")
         self.log_roll.configure(textvariable=self.log_roll_var)
         self.log_roll.pack(fill="x", padx=20, pady=(5,10))
+        self.log_roll.bind("<Return>", lambda e: self.log_pw.focus_set() if not self.log_pw.get() else self._verify_student_login())
 
-        ctk.CTkLabel(card, text="PASSWORD:", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(5,0))
+        ctk.CTkLabel(card, text="PASSWORD (or enter new password on first login):", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(5,0))
         self.log_pw = HackerEntry(card, show="*"); self.log_pw.pack(fill="x", padx=20, pady=(5,10))
         self.log_pw.bind("<Return>", lambda e: self._verify_student_login())
 
@@ -682,61 +2109,77 @@ class OnboardingWizard(ctk.CTk):
 
         self.btn_forgot = HackerButton(r, "FORGOT PASSWORD", self._show_forgot_password, color=DANGER, hover="#cc0000", text_col="#ffffff")
         self.btn_login = HackerButton(r, "LOGIN", self._verify_student_login)
+        self.btn_login.pack(side="right")
         HackerButton(r, "BACK", self._render_step_identity, color=SURFACE, text_col=MUTED).pack(side="left")
         HackerButton(r, "🔄 CHECK UPDATE", self._open_update_modal, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="left", padx=10)
 
-        def _on_roll_change(*args):
-            if len(self.log_roll_var.get().strip()) >= 5:
-                if not self.btn_login.winfo_ismapped(): self.btn_login.pack(side="right")
-            else:
-                if self.btn_login.winfo_ismapped(): self.btn_login.pack_forget()
-
-        self.log_roll_var.trace_add("write", _on_roll_change)
-
     def _verify_student_login(self):
-        roll = self.log_roll.get().strip().upper()
+        entered_id = self.log_roll.get().strip()
         pw = self.log_pw.get()
-        if not roll: return
+        if not entered_id:
+            self.log_err.configure(text="Please enter your Roll Number or Registered Phone Number.", text_color=DANGER)
+            return
 
-        self.log_err.configure(text="[>>>] VERIFYING WITH FIREBASE CLOUD...", text_color=NEON_GREEN)
+        self.log_err.configure(text="[>>>] VERIFYING WITH CAMPUS DATABASE...", text_color=NEON_GREEN)
         self.update_idletasks()
 
-        # Query Firebase live so password changes in Firebase console apply immediately!
-        data = get_student(roll)
-        if not data:
-            data = self.cloud_db.get(roll)
+        canonical_roll, data = find_student(entered_id, self.cloud_db)
 
         if not data:
-            self.log_err.configure(text="Roll number not found. Please register or use Temp Roll Login.", text_color=DANGER)
+            self.log_err.configure(
+                text=f"[-] '{entered_id}' not found in campus database.\nIf you are a new student, please click CREATE NEW ACCOUNT.",
+                text_color=DANGER
+            )
             self.btn_forgot.pack_forget()
             return
+
+        roll = canonical_roll or data.get("permanent_roll") or data.get("temp_roll") or entered_id.upper()
 
         # Check if user entered a Temp Roll that was already migrated to a Permanent Roll
         if data.get("migrated_to"):
             perm_roll = data["migrated_to"]
-            perm_data = get_student(perm_roll) or self.cloud_db.get(perm_roll)
+            _, perm_data = find_student(perm_roll, self.cloud_db)
             if perm_data:
                 data = perm_data
                 roll = perm_roll
 
         # Check if user entered an unmigrated Temp Roll in Student Login
         if data.get("is_temp") and not data.get("migrated_to"):
-            self.log_err.configure(
-                text="TEMPORARY ROLL DETECTED.\nPlease use '[4] AUS LOGIN WITH TEMP ROLL NUMBER' to activate your Permanent Roll.",
-                text_color=WARNING
-            )
+            # Seamlessly switch to temp roll activation with data ready!
+            self._render_step_temp_roll_login()
+            self.temp_roll_entry.delete(0, "end")
+            self.temp_roll_entry.insert(0, roll)
+            self._verify_temp_roll()
             return
 
         saved_pw = data.get("password")
 
         if saved_pw:
             if pw != saved_pw:
-                self.log_err.configure(text="Incorrect Password.", text_color=DANGER)
+                self.log_err.configure(text="Incorrect Password. Please try again.", text_color=DANGER)
                 if not self.btn_forgot.winfo_ismapped(): self.btn_forgot.pack(side="right", padx=(0,10))
                 return
         else:
-            self.log_err.configure(text="Password not set. Please CREATE NEW ACCOUNT or use Temp Roll Login.", text_color=WARNING)
-            return
+            # First-time login: Password not set yet!
+            if pw and len(pw) >= 4:
+                # Save the new password to Firebase and local DB immediately
+                data["password"] = pw
+                update_student(roll, {"password": pw})
+                if roll in self.cloud_db and isinstance(self.cloud_db[roll], dict):
+                    self.cloud_db[roll]["password"] = pw
+                else:
+                    self.cloud_db[roll] = data
+                save_local_db(self.cloud_db)
+                messagebox.showinfo(
+                    "ACCOUNT ACTIVATED",
+                    f"Welcome, {data.get('name', 'Student')}!\n\nYour password has been successfully registered.\nLogging you in now..."
+                )
+            else:
+                self.log_err.configure(
+                    text="First-time login: Please enter a password (min 4 chars) and click LOGIN to secure your account.",
+                    text_color=WARNING
+                )
+                return
 
         self.user_data["role"] = "student"
         self.user_data["roll"] = roll
@@ -755,11 +2198,12 @@ class OnboardingWizard(ctk.CTk):
 
         self.card = HackerCard(self.content); self.card.pack(fill="x", padx=20, pady=10)
 
-        ctk.CTkLabel(self.card, text="ROLL NUMBER:", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(5,0))
+        ctk.CTkLabel(self.card, text="ROLL NUMBER OR PHONE NUMBER:", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(5,0))
         self.reg_roll_var = ctk.StringVar()
-        self.reg_roll = HackerEntry(self.card)
+        self.reg_roll = HackerEntry(self.card, placeholder="Enter Roll Number or Phone...")
         self.reg_roll.configure(textvariable=self.reg_roll_var)
         self.reg_roll.pack(fill="x", padx=20, pady=2)
+        self.reg_roll.bind("<Return>", lambda e: self._animate_fetch())
 
         self.reg_err = ctk.CTkLabel(self.card, text="", font=FS, text_color=DANGER); self.reg_err.pack(pady=5)
 
@@ -773,6 +2217,7 @@ class OnboardingWizard(ctk.CTk):
 
         ctk.CTkLabel(self.details_frame, text="CREATE PASSWORD:", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(5,0))
         self.reg_pw = HackerEntry(self.details_frame, show="*"); self.reg_pw.pack(fill="x", padx=20, pady=2)
+        self.reg_pw.bind("<Return>", lambda e: self._verify_student_register())
 
         self.r = self._nav()
 
@@ -783,7 +2228,7 @@ class OnboardingWizard(ctk.CTk):
         HackerButton(self.r, "BACK", self._render_step_identity, color=SURFACE, text_col=MUTED).pack(side="left")
 
         def _on_roll_change_reg(*args):
-            if len(self.reg_roll_var.get().strip()) >= 5:
+            if len(self.reg_roll_var.get().strip()) >= 4:
                 if not self.btn_fetch.winfo_ismapped() and not self.btn_register.winfo_ismapped():
                     self.btn_fetch.pack(side="right")
             else:
@@ -798,7 +2243,7 @@ class OnboardingWizard(ctk.CTk):
     def _animate_fetch(self):
         self.btn_fetch.pack_forget()
         self.btn_forgot_reg.pack_forget()
-        self.reg_err.configure(text="[>>>] ESTABLISHING UPLINK TO FIREBASE...", text_color=NEON_GREEN)
+        self.reg_err.configure(text="[>>>] SEARCHING CAMPUS DATABASE...", text_color=NEON_GREEN)
         self.reg_roll.configure(state="disabled")
 
         def _anim():
@@ -813,24 +2258,25 @@ class OnboardingWizard(ctk.CTk):
 
     def _process_fetch(self):
         self.reg_roll.configure(state="normal")
-        roll = self.reg_roll.get().strip().upper()
+        entered = self.reg_roll.get().strip()
 
-        data = get_student(roll)
-        if not data:
-            data = self.cloud_db.get(roll)
+        canonical_roll, data = find_student(entered, self.cloud_db)
+        roll = canonical_roll or entered.upper()
+        self.reg_roll.delete(0, "end")
+        self.reg_roll.insert(0, roll)
 
         if data:
             if data.get("password"):
-                self.reg_err.configure(text="THIS ACCOUNT IS ALREADY SECURED.", text_color=DANGER)
+                self.reg_err.configure(text="THIS ACCOUNT IS ALREADY SECURED. PLEASE LOGIN.", text_color=DANGER)
                 self.btn_forgot_reg.pack(side="right", padx=(0,10))
             else:
-                self.reg_err.configure(text="[+] CLOUD RECORD FOUND. SET YOUR PASSWORD.", text_color=NEON_GREEN)
+                self.reg_err.configure(text="[+] CAMPUS RECORD FOUND. SET YOUR PASSWORD.", text_color=NEON_GREEN)
                 self.reg_name.delete(0, "end"); self.reg_name.insert(0, data.get("name", ""))
                 self.reg_branch.delete(0, "end"); self.reg_branch.insert(0, data.get("branch", ""))
                 self.details_frame.pack(fill="x", pady=(5,10))
                 self.btn_register.pack(side="right")
         else:
-            self.reg_err.configure(text="[-] NO CLOUD RECORD FOUND. MANUAL ENTRY REQUIRED.", text_color=MUTED)
+            self.reg_err.configure(text="[-] NEW STUDENT: MANUAL ENTRY REQUIRED.", text_color=MUTED)
             self.reg_name.delete(0, "end")
             self.reg_branch.delete(0, "end")
             self.details_frame.pack(fill="x", pady=(5,10))
@@ -848,16 +2294,22 @@ class OnboardingWizard(ctk.CTk):
         name = self.reg_name.get().strip()
         branch = self.reg_branch.get().strip()
 
-        # Update Firebase Cloud Database
+        # Update Firebase Cloud Database & local database
         new_data = {
             "name": name,
             "branch": branch,
             "university": "Aditya University",
             "phone": "N/A",
-            "password": pw
+            "password": pw,
+            "status": "ACTIVE_REGISTERED"
         }
-        set_student(roll, new_data)
-        self.cloud_db[roll] = new_data
+        if roll in self.cloud_db and isinstance(self.cloud_db[roll], dict):
+            self.cloud_db[roll].update(new_data)
+        else:
+            self.cloud_db[roll] = new_data
+
+        set_student(roll, self.cloud_db[roll])
+        save_local_db(self.cloud_db)
 
         self.user_data["role"] = "student"
         self.user_data["roll"] = roll
@@ -915,15 +2367,27 @@ class OnboardingWizard(ctk.CTk):
 
             # 1. Typewriter Welcome
             for i in range(1, len(full_welcome) + 1):
-                self.after(0, lambda t=full_welcome[:i]: welcome_lbl.configure(text=t))
+                if self._stop_anim.is_set(): return
+                try:
+                    self.after(0, lambda t=full_welcome[:i]: welcome_lbl.configure(text=t))
+                except Exception:
+                    return
                 time.sleep(0.04)
 
             # 2. Typewriter Subtitle
             for i in range(1, len(full_subtitle) + 1):
-                self.after(0, lambda t=full_subtitle[:i]: subtitle_lbl.configure(text=t))
+                if self._stop_anim.is_set(): return
+                try:
+                    self.after(0, lambda t=full_subtitle[:i]: subtitle_lbl.configure(text=t))
+                except Exception:
+                    return
                 time.sleep(0.03)
 
-            self.after(0, lambda: user_badge.configure(text=f"OPERATOR: {name} | {roll or 'SYSTEM ADMIN'}"))
+            if self._stop_anim.is_set(): return
+            try:
+                self.after(0, lambda: user_badge.configure(text=f"OPERATOR: {name} | {roll or 'SYSTEM ADMIN'}"))
+            except Exception:
+                return
 
             # 3. Boot telemetry streaming
             lines = [
@@ -936,45 +2400,129 @@ class OnboardingWizard(ctk.CTk):
             ]
 
             for idx, line in enumerate(lines):
-                self.after(0, lambda l=line: log_box.insert("end", l + "\n"))
-                self.after(0, lambda: log_box.see("end"))
-                progress = (idx + 1) / len(lines)
-                self.after(0, lambda p=progress: pbar.set(p))
+                if self._stop_anim.is_set(): return
+                try:
+                    self.after(0, lambda l=line: log_box.insert("end", l + "\n"))
+                    self.after(0, lambda: log_box.see("end"))
+                    progress = (idx + 1) / len(lines)
+                    self.after(0, lambda p=progress: pbar.set(p))
+                except Exception:
+                    return
                 time.sleep(0.22)
 
-            self.after(0, lambda: top_lbl.configure(text=">_ AGENT PRAYATH FULLY ARMED & READY", text_color=NEON_GREEN))
-            self.after(0, lambda: continue_btn.pack(side="left", fill="x", expand=True, padx=(0, 10)))
+            if self._stop_anim.is_set(): return
+            try:
+                self.after(0, lambda: top_lbl.configure(text=">_ AGENT PRAYATH FULLY ARMED & READY", text_color=NEON_GREEN))
+                self.after(0, lambda: continue_btn.pack(side="left", fill="x", expand=True, padx=(0, 10)))
+            except Exception:
+                pass
 
         threading.Thread(target=_run_intro_anim, daemon=True).start()
 
     def _render_step_apikey(self):
+        self._stop_anim.set()
         self._clear()
-        ctk.CTkLabel(self.content, text="CONFIGURE API KEY", font=FH1, text_color=NEON_GREEN).pack(pady=(30,10))
-        ctk.CTkLabel(self.content, text="Connect Gemini API to enable AI coding support", font=FB, text_color=MUTED).pack(pady=(0,20))
+        ctk.CTkLabel(self.content, text="CONFIGURE GEMINI API KEY", font=FH1, text_color=NEON_GREEN).pack(pady=(20,5))
+        ctk.CTkLabel(self.content, text="Connect Google Gemini API to enable Autonomous AI Coding", font=FB, text_color=MUTED).pack(pady=(0,15))
 
         saved_key = self.session.get("api_key", "")
-        card = HackerCard(self.content); card.pack(fill="x", padx=20, pady=20)
-        ctk.CTkLabel(card, text="API KEY [GEMINI] (Optional):", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(20,5))
-        self.api_e = HackerEntry(card, show="*", placeholder="Paste key or leave blank..."); self.api_e.pack(fill="x", padx=20, pady=(0,20))
+        card = HackerCard(self.content)
+        card.pack(fill="x", padx=20, pady=10)
+
+        # 1-Click Direct Link to get free Gemini API key
+        link_box = ctk.CTkFrame(card, fg_color="transparent")
+        link_box.pack(fill="x", padx=20, pady=(15, 8))
+        ctk.CTkLabel(link_box, text="Don't have an API key? Get one free in 30 seconds:", font=FS, text_color=MUTED).pack(side="left")
+        HackerButton(link_box, "🔑 GET FREE API KEY (GOOGLE AI STUDIO)",
+                     lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
+                     height=30, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="right")
+
+        ctk.CTkLabel(card, text="GEMINI API KEY (Optional for Offline DSA Vault):", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(10, 5))
+
+        entry_row = ctk.CTkFrame(card, fg_color="transparent")
+        entry_row.pack(fill="x", padx=20, pady=5)
+
+        self.api_e = HackerEntry(entry_row, show="*", placeholder="Paste Gemini API Key here (starts with AIzaSy...)...")
+        self.api_e.pack(side="left", fill="x", expand=True, padx=(0, 10))
         if saved_key: self.api_e.insert(0, saved_key)
 
+        self.btn_test_api = HackerButton(entry_row, "⚡ TEST KEY", self._test_api_key_onboarding, height=38, width=110, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN)
+        self.btn_test_api.pack(side="right")
+
+        self.api_status_lbl = ctk.CTkLabel(card, text="[*] Enter your API key and click 'TEST KEY' or 'CONFIGURE & LAUNCH'", font=FS, text_color=MUTED, anchor="w")
+        self.api_status_lbl.pack(fill="x", padx=20, pady=(4, 15))
+
         r = self._nav()
-        HackerButton(r, "CONFIGURE API KEY", self._save_api).pack(side="right", padx=(10,0))
-        HackerButton(r, "SKIP AND CONTINUE", self._skip_api, color=SURFACE, text_col=MUTED).pack(side="right", padx=(10,0))
-        HackerButton(r, "BACK", self._render_step_welcome, color=SURFACE, text_col=MUTED).pack(side="left", padx=(0,10))
+        HackerButton(r, "CONFIGURE & LAUNCH", self._save_api, height=44).pack(side="right", padx=(10,0))
+        HackerButton(r, "SKIP TO OFFLINE MODE", self._skip_api, color=SURFACE, text_col=MUTED, height=44).pack(side="right", padx=(10,0))
+        HackerButton(r, "BACK", self._render_step_identity, color=SURFACE, text_col=MUTED, height=44).pack(side="left", padx=(0,10))
+
+    def _test_api_key_onboarding(self):
+        k = self.api_e.get().strip()
+        if not k:
+            self.api_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
+            return
+        self.btn_test_api.configure(state="disabled")
+        self.api_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    self.btn_test_api.configure(state="normal")
+                    if ok:
+                        self.api_status_lbl.configure(text=f"🟢 {msg}", text_color=NEON_GREEN)
+                    else:
+                        self.api_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
 
     def _save_api(self):
+        self._stop_anim.set()
         k = self.api_e.get().strip()
-        self.user_data["api_key"] = k
-        self.user_data["startup_mode"] = "AI_MODULE" if k else "MANUAL_OVERRIDE"
-        self._finish()
+        if not k:
+            ans = messagebox.askyesno("NO API KEY", "No API key entered.\n\nWould you like to continue in Offline Mode (Offline DSA Vault & Manual Typer)?")
+            if ans:
+                self._skip_api()
+            return
+
+        self.api_status_lbl.configure(text="[*] Verifying API key with Google Cloud...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    if ok:
+                        self.user_data["api_key"] = k
+                        self.user_data["startup_mode"] = "AI_MODULE"
+                        self._finish()
+                    else:
+                        ans = messagebox.askyesno("API KEY WARNING", f"Google Gemini returned:\n{msg}\n\nWould you like to save this key anyway and continue?")
+                        if ans:
+                            self.user_data["api_key"] = k
+                            self.user_data["startup_mode"] = "AI_MODULE"
+                            self._finish()
+                        else:
+                            self.api_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
 
     def _skip_api(self):
+        self._stop_anim.set()
         self.user_data["api_key"] = ""
         self.user_data["startup_mode"] = "MANUAL_OVERRIDE"
         self._finish()
 
     def _finish(self):
+        self._stop_anim.set()
         self.session.update({
             "role": self.user_data.get("role", "student"),
             "name": self.user_data.get("name", "USER"),
@@ -1000,11 +2548,23 @@ class AutoCoderApp(ctk.CTk):
         self.is_typing   = False
         self.stop_typing = False
         self._shutdown_event = threading.Event()
+        self.logged_out = False
+        self.kb_listener = None
         self.current_mode = self.session.get("startup_mode", "MANUAL_OVERRIDE")
 
         # Crucial: Initialize control variables early before building UI or threads
         self.status_var   = ctk.StringVar(value="SYSTEM READY.")
         self.auto_run_var = ctk.BooleanVar(value=True)
+
+        # Student Ultimate Edition v3.0 Features
+        self.format_var = ctk.StringVar(value="competitive")
+        self.sol_type_var = ctk.StringVar(value="optimal")
+        self.typing_speed_var = ctk.StringVar(value="Average (60 WPM)")
+        self.typo_sim_var = ctk.BooleanVar(value=True)
+        self.ghost_hud = None
+        self.current_theme = "matrix"
+        self.last_generated_code = ""
+        self.last_generated_lang = "python" 
 
         name = self.session.get("name","AGENT")
         self.title(f"AGENT PRAYATH v2.0 - {name}")
@@ -1018,9 +2578,96 @@ class AutoCoderApp(ctk.CTk):
         self._build_ui()
         self._start_emergency_listener()
         self._start_heartbeat()
+        self.lift()
+        self.attributes('-topmost', True)
+        self.after(200, lambda: self.attributes('-topmost', False))
+        self.focus_force()
 
         # Handle window close cleanly
         self.protocol("WM_DELETE_WINDOW", self._on_app_close)
+
+    
+    def _dismiss_broadcast(self):
+        try:
+            self.broadcast_banner.pack_forget()
+        except Exception:
+            pass
+
+    def _admin_broadcast_update(self):
+        v = self.admin_upd_v_entry.get().strip() or APP_VERSION
+        msg = self.admin_upd_msg_entry.get().strip() or "New system update available."
+        url = getattr(self, "admin_upd_url_entry", None)
+        url_val = url.get().strip() if url else ""
+        show_pop = self.admin_upd_popup_var.get()
+        payload = {
+            "version": v,
+            "message": msg,
+            "download_url": url_val,
+            "timestamp": time.time(),
+            "show_popup": show_pop,
+            "author": self.session.get("name", "ROOT_ADMIN")
+        }
+        res = _firebase_request("/system_broadcast", method="PUT", data=payload)
+        _firebase_request("/system_config/latest_version", method="PUT", data=v)
+        _firebase_request("/system_config/changelog", method="PUT", data=msg)
+        if url_val:
+            _firebase_request("/system_config/download_url", method="PUT", data=url_val)
+        if hasattr(self, "admin_broadcast_status"):
+            self.admin_broadcast_status.configure(
+                text=f"[+] BROADCAST ACTIVE: Pushed {v} to all online student dashboards!",
+                text_color=NEON_GREEN
+            )
+        messagebox.showinfo("BROADCAST SENT", f"Update notification for {v} has been broadcast to all student dashboards!\n\nMessage: {msg}\nDirect Download URL: {url_val or 'Default GitHub'}")
+
+    def _admin_clear_broadcast(self):
+        _firebase_request("/system_broadcast", method="DELETE")
+        if hasattr(self, "admin_broadcast_status"):
+            self.admin_broadcast_status.configure(
+                text="[*] Broadcast cleared. Notifications dismissed from all student screens.",
+                text_color=MUTED
+            )
+        messagebox.showinfo("BROADCAST CLEARED", "Global broadcast cleared from Firebase.")
+
+    def _load_current_broadcast_info(self):
+        def _task():
+            try:
+                bc = _firebase_request("/system_broadcast")
+                if isinstance(bc, dict) and bc.get("version"):
+                    v = bc.get("version", "")
+                    msg = bc.get("message", "")
+                    url = bc.get("download_url", "")
+                    def _ui():
+                        if hasattr(self, "admin_upd_v_entry") and v:
+                            self.admin_upd_v_entry.delete(0, "end"); self.admin_upd_v_entry.insert(0, v)
+                        if hasattr(self, "admin_upd_msg_entry") and msg:
+                            self.admin_upd_msg_entry.delete(0, "end"); self.admin_upd_msg_entry.insert(0, msg)
+                        if hasattr(self, "admin_upd_url_entry") and url:
+                            self.admin_upd_url_entry.delete(0, "end"); self.admin_upd_url_entry.insert(0, url)
+                        if hasattr(self, "admin_broadcast_status"):
+                            self.admin_broadcast_status.configure(text=f"[+] Active Broadcast: {v} ('{msg[:35]}...')", text_color=NEON_GREEN)
+                    self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _check_and_display_broadcast(self):
+        try:
+            bc = _firebase_request("/system_broadcast")
+            if isinstance(bc, dict) and bc.get("version"):
+                v = bc.get("version", "")
+                msg = bc.get("message", "New update available!")
+                if v != APP_VERSION or bc.get("show_popup"):
+                    def _show_ui():
+                        self.broadcast_msg_lbl.configure(text=f"📢 NOTIFICATION: {v} AVAILABLE — {msg}")
+                        self.broadcast_banner.pack(fill="x", padx=10, pady=(10,0), before=list(self.frames.values())[0])
+                        if bc.get("show_popup") and not getattr(self, "_popup_shown_for", None) == v:
+                            self._popup_shown_for = v
+                            ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nChangelog:\n{msg}\n\nWould you like to install the update now?")
+                            if ans:
+                                self._check_update_and_refresh_ui()
+                    self.after(0, _show_ui)
+        except Exception:
+            pass
 
     def _start_heartbeat(self):
         """Send periodic presence heartbeat to Firebase Cloud every 15s."""
@@ -1040,6 +2687,7 @@ class AutoCoderApp(ctk.CTk):
                         "version": APP_VERSION
                     }
                     update_online_presence(roll, payload)
+                    self._check_and_display_broadcast()
                 except Exception:
                     pass
                 self._shutdown_event.wait(15)
@@ -1050,12 +2698,21 @@ class AutoCoderApp(ctk.CTk):
     def _on_app_close(self):
         """Cleanup online presence when user closes the app."""
         self._shutdown_event.set()
+        self.logged_out = False
+        try:
+            if hasattr(self, "kb_listener") and self.kb_listener:
+                self.kb_listener.stop()
+        except Exception:
+            pass
         try:
             roll = self.session.get("roll") or self.session.get("name", "USER")
             remove_online_presence(roll)
         except Exception:
             pass
-        self.destroy()
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
     def _build_ui(self):
         # 1. Header
@@ -1071,8 +2728,10 @@ class AutoCoderApp(ctk.CTk):
         self.hdr_id_lbl = ctk.CTkLabel(hdr, text=id_text, font=FB, text_color=MUTED)
         self.hdr_id_lbl.pack(side="right", padx=(10,20))
 
-        # Quick Update button in header for all users
-        HackerButton(hdr, "🔄 CHECK UPDATE", self._check_update_and_refresh_ui, height=34, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right", padx=10)
+        # Student Toolbar
+        HackerButton(hdr, "🔄 CHECK UPDATE", self._check_update_and_refresh_ui, height=34, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right", padx=6)
+        HackerButton(hdr, "👻 GHOST HUD", self._toggle_ghost_hud, height=34, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=6)
+        HackerButton(hdr, "🎨 STEALTH THEME", self._toggle_theme, height=34, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=6)
 
         # 2. Main split body (Sidebar + Content)
         body = ctk.CTkFrame(self, fg_color="transparent")
@@ -1089,10 +2748,26 @@ class AutoCoderApp(ctk.CTk):
         self.main_panel = HackerCard(body)
         self.main_panel.pack(side="right", fill="both", expand=True)
 
+        # ── SYSTEM BROADCAST NOTIFICATION BANNER (VISIBLE TO ALL USERS) ────
+        self.broadcast_banner = ctk.CTkFrame(self.main_panel, fg_color="#1a2e1a", border_width=2, border_color=NEON_GREEN, height=44)
+        self.broadcast_msg_lbl = ctk.CTkLabel(self.broadcast_banner, text="", font=FB, text_color=NEON_GREEN, anchor="w")
+        self.broadcast_msg_lbl.pack(side="left", padx=15, fill="x", expand=True)
+        HackerButton(self.broadcast_banner, "⚡ UPDATE NOW", self._check_update_and_refresh_ui, height=28, width=120, color=DARK_GREEN, text_col=BG).pack(side="right", padx=(5,10))
+        HackerButton(self.broadcast_banner, "✕", self._dismiss_broadcast, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=5)
+
         self.frames = {}
 
         self.frames["AI_MODULE"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
         self._build_ai_tab(self.frames["AI_MODULE"])
+
+        self.frames["VIVA_NOTES"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self._build_viva_tab(self.frames["VIVA_NOTES"])
+
+        self.frames["TEST_CASES"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self._build_test_cases_tab(self.frames["TEST_CASES"])
+
+        self.frames["OFFLINE_VAULT"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self._build_offline_vault_tab(self.frames["OFFLINE_VAULT"])
 
         self.frames["MANUAL_OVERRIDE"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
         self._build_manual_tab(self.frames["MANUAL_OVERRIDE"])
@@ -1113,6 +2788,9 @@ class AutoCoderApp(ctk.CTk):
 
         # Setup Sidebar Navigation Buttons
         self._create_nav_button("AI MODULE", "AI_MODULE")
+        self._create_nav_button("🎓 VIVA CHEAT SHEET", "VIVA_NOTES")
+        self._create_nav_button("🧪 TEST CASES", "TEST_CASES")
+        self._create_nav_button("📚 OFFLINE DSA VAULT", "OFFLINE_VAULT")
         self._create_nav_button("MANUAL OVERRIDE", "MANUAL_OVERRIDE")
         if self.session.get("role") == "admin":
             self._create_nav_button("LIVE USERS [●]", "LIVE_MONITOR")
@@ -1159,36 +2837,201 @@ class AutoCoderApp(ctk.CTk):
 
     def _logout(self):
         self._shutdown_event.set()
+        self.logged_out = True
+        try:
+            if hasattr(self, "kb_listener") and self.kb_listener:
+                self.kb_listener.stop()
+        except Exception:
+            pass
         try:
             roll = self.session.get("roll") or self.session.get("name", "USER")
             remove_online_presence(roll)
         except Exception:
             pass
         save_session({})
-        self.destroy()
-        subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
+    def _open_api_config_modal(self):
+        ApiKeyConfigModal(self)
+
+    def _test_ai_quick_api(self):
+        k = self.ai_quick_api_entry.get().strip() if hasattr(self, "ai_quick_api_entry") else ""
+        if not k:
+            self.ai_quick_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
+            return
+        self.ai_quick_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    if ok:
+                        self.ai_quick_status_lbl.configure(text=f"🟢 {msg}", text_color=NEON_GREEN)
+                    else:
+                        self.ai_quick_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _save_ai_quick_api(self):
+        k = self.ai_quick_api_entry.get().strip() if hasattr(self, "ai_quick_api_entry") else ""
+        if not k:
+            messagebox.showwarning("NO KEY", "Please paste your Gemini API key, or switch to Offline DSA Vault.")
+            return
+        self.ai_quick_status_lbl.configure(text="[*] Testing & connecting API key...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    if ok:
+                        self.session["api_key"] = k
+                        save_session(self.session)
+                        self.backend = AntigravityBackend(k)
+                        if hasattr(self, "lbl_prof_api"):
+                            self.lbl_prof_api.configure(text="API STATUS: ACTIVE", text_color=NEON_GREEN)
+                        self._build_ai_tab(self.frames["AI_MODULE"])
+                        self.update_status("[+] AI UPLINK CONNECTED & ACTIVE!")
+                        messagebox.showinfo("AI ACTIVATED", "Gemini API connected successfully! AI Mode is now active.")
+                    else:
+                        ans = messagebox.askyesno("API KEY WARNING", f"Google Gemini verification returned:\n{msg}\n\nWould you like to activate anyway?")
+                        if ans:
+                            self.session["api_key"] = k
+                            save_session(self.session)
+                            self.backend = AntigravityBackend(k)
+                            if hasattr(self, "lbl_prof_api"):
+                                self.lbl_prof_api.configure(text="API STATUS: ACTIVE", text_color=NEON_GREEN)
+                            self._build_ai_tab(self.frames["AI_MODULE"])
+                            self.update_status("[+] AI UPLINK CONFIGURED.")
+                        else:
+                            self.ai_quick_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
 
     def _build_ai_tab(self, p):
+        for w in p.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+
         if not self.session.get("api_key",""):
-            ctk.CTkLabel(p, text="UPLINK DISCONNECTED", font=FH1, text_color=DANGER).pack(pady=30)
-            ctk.CTkLabel(p, text="Provide API Key to restore connection.", font=FB, text_color=MUTED).pack()
-            ctk.CTkLabel(p, text="Or use MANUAL OVERRIDE to inject code directly without API Key.", font=FS, text_color=DARK_GREEN).pack(pady=15)
-            HackerButton(p, "SWITCH TO MANUAL OVERRIDE", lambda: self.show_frame("MANUAL_OVERRIDE"), height=40).pack(pady=10)
+            card = HackerCard(p)
+            card.pack(fill="both", expand=True, padx=20, pady=20)
+
+            ctk.CTkLabel(card, text="⚡ AI UPLINK NOT CONFIGURED", font=FH1, text_color=DANGER).pack(pady=(25, 5))
+            ctk.CTkLabel(card, text="A Google Gemini API key is required for AI Screen Snipping & Auto Code Generation.", font=FB, text_color=MUTED).pack(pady=(0, 15))
+
+            # 1-Click Direct Link to get free Gemini API key
+            link_box = ctk.CTkFrame(card, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+            link_box.pack(fill="x", padx=30, pady=10)
+            ctk.CTkLabel(link_box, text="Need a free API key? Google provides free Gemini API keys for students (takes 30 seconds):", font=FS, text_color=TEXT).pack(pady=(12, 6))
+            HackerButton(link_box, "🔑 GET FREE GEMINI API KEY (1-CLICK DIRECT LINK)",
+                         lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
+                         height=42, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(pady=(0, 12), padx=20, fill="x")
+
+            # Inline API key entry & testing
+            setup_card = ctk.CTkFrame(card, fg_color="transparent")
+            setup_card.pack(fill="x", padx=30, pady=10)
+
+            ctk.CTkLabel(setup_card, text="PASTE YOUR GEMINI API KEY HERE:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", pady=(5, 3))
+
+            entry_row = ctk.CTkFrame(setup_card, fg_color="transparent")
+            entry_row.pack(fill="x", pady=5)
+            self.ai_quick_api_entry = HackerEntry(entry_row, show="*", placeholder="Paste Gemini API Key (starts with AIzaSy...)...")
+            self.ai_quick_api_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+            HackerButton(entry_row, "⚡ TEST KEY", self._test_ai_quick_api, height=38, width=110, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right")
+
+            self.ai_quick_status_lbl = ctk.CTkLabel(setup_card, text="[*] Enter your API key and click 'CONNECT & ACTIVATE AI MODE'", font=FS, text_color=MUTED, anchor="w")
+            self.ai_quick_status_lbl.pack(fill="x", pady=(2, 10))
+
+            HackerButton(setup_card, "💾 CONNECT & ACTIVATE AI MODE", self._save_ai_quick_api, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", pady=(0, 10))
+
+            # Alternate Offline Buttons
+            alt_box = ctk.CTkFrame(card, fg_color="transparent")
+            alt_box.pack(fill="x", padx=30, pady=(15, 20))
+            ctk.CTkLabel(alt_box, text="OR USE OFFLINE TOOLS (NO INTERNET / NO API KEY REQUIRED):", font=FS, text_color=MUTED).pack(pady=(0, 8))
+            alt_row = ctk.CTkFrame(alt_box, fg_color="transparent")
+            alt_row.pack(fill="x")
+            HackerButton(alt_row, "📚 OPEN OFFLINE DSA VAULT", lambda: self.show_frame("OFFLINE_VAULT"), height=38).pack(side="left", fill="x", expand=True, padx=(0, 5))
+            HackerButton(alt_row, "⌨️ MANUAL OVERRIDE (AUTO-TYPER)", lambda: self.show_frame("MANUAL_OVERRIDE"), height=38, color=SURFACE, text_col=MUTED).pack(side="right", fill="x", expand=True, padx=(5, 0))
             return
 
-        top = ctk.CTkFrame(p, fg_color="transparent"); top.pack(fill="x", pady=(20,0))
-        ctk.CTkLabel(top, text="TARGET LANG:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(20,10))
+        # Top Bar with AI Uplink Status & Direct Link
+        top_bar = ctk.CTkFrame(p, fg_color="transparent")
+        top_bar.pack(fill="x", padx=15, pady=(5, 5))
+
+        ctk.CTkLabel(top_bar, text="🟢 AI UPLINK ACTIVE (Gemini Connected)", font=FB, text_color=NEON_GREEN).pack(side="left")
+
+        HackerButton(top_bar, "⚙️ API SETTINGS / TEST", self._open_api_config_modal, height=30, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="right", padx=(5, 0))
+        HackerButton(top_bar, "🔑 GET FREE KEY", lambda: webbrowser.open("https://aistudio.google.com/app/apikey"), height=30, color=SURFACE, text_col=MUTED, font=FS).pack(side="right")
+
+        # Settings Grid Card
+        scard = HackerCard(p)
+        scard.pack(fill="x", padx=15, pady=(5,10))
+
+        # Row 1: Target Lang & Format Type
+        r1 = ctk.CTkFrame(scard, fg_color="transparent")
+        r1.pack(fill="x", padx=15, pady=(10,5))
+
+        ctk.CTkLabel(r1, text="TARGET LANG:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
         self.lang_var = ctk.StringVar(value="python")
-        ctk.CTkComboBox(top, values=["python","cpp","java","javascript","c","sql","rust","go"],
-                        variable=self.lang_var, width=200, fg_color=SURFACE, text_color=NEON_GREEN,
-                        border_color=DARK_GREEN, button_color=DARK_GREEN, font=FB, corner_radius=0).pack(side="left")
+        ctk.CTkComboBox(r1, values=["python","cpp","java","javascript","c","sql","rust","go"],
+                        variable=self.lang_var, width=140, fg_color=SURFACE, text_color=NEON_GREEN,
+                        border_color=DARK_GREEN, button_color=DARK_GREEN, font=FB, corner_radius=0).pack(side="left", padx=(0,20))
 
-        HackerButton(p, "EXECUTE VISION CAPTURE", self.start_vision_generation, height=60).pack(fill="x", padx=20, pady=(30,20))
-        ctk.CTkLabel(p, text="--- OR MANUAL QUERY ---", font=FS, text_color=MUTED).pack()
+        ctk.CTkLabel(r1, text="FORMAT:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
+        ctk.CTkSegmentedButton(r1, values=["competitive", "leetcode"], variable=self.format_var,
+                               selected_color=DARK_GREEN, selected_hover_color=NEON_GREEN,
+                               fg_color=SURFACE, text_color=NEON_GREEN, font=FB).pack(side="left", padx=(0,20))
 
-        self.prompt_entry = ctk.CTkTextbox(p, fg_color=SURFACE, text_color=NEON_GREEN, font=FB, border_width=2, border_color=DARK_GREEN, corner_radius=0)
-        self.prompt_entry.pack(fill="both", expand=True, padx=20, pady=15)
-        HackerButton(p, "GENERATE & INJECT CODE", self.start_text_generation, height=45).pack(fill="x", padx=20, pady=(0,20))
+        ctk.CTkLabel(r1, text="SOLUTION:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
+        ctk.CTkSegmentedButton(r1, values=["optimal", "simple"], variable=self.sol_type_var,
+                               selected_color=DARK_GREEN, selected_hover_color=NEON_GREEN,
+                               fg_color=SURFACE, text_color=NEON_GREEN, font=FB).pack(side="left")
+
+        # Row 2: Speed & Typo Cadence
+        r2 = ctk.CTkFrame(scard, fg_color="transparent")
+        r2.pack(fill="x", padx=15, pady=(5,10))
+
+        ctk.CTkLabel(r2, text="TYPING SPEED:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
+        ctk.CTkComboBox(r2, values=["Slow Student (35 WPM)", "Average (60 WPM)", "Rapid (110 WPM)"],
+                        variable=self.typing_speed_var, width=200, fg_color=SURFACE, text_color=NEON_GREEN,
+                        border_color=DARK_GREEN, button_color=DARK_GREEN, font=FB, corner_radius=0).pack(side="left", padx=(0,20))
+
+        ctk.CTkCheckBox(r2, text="HUMAN TYPO SIMULATION (ANTI-CHEAT BYPASS)", variable=self.typo_sim_var,
+                        fg_color=DARK_GREEN, hover_color=NEON_GREEN, checkmark_color=NEON_GREEN, border_color=DARK_GREEN, font=FB, text_color=MUTED).pack(side="left")
+
+        # Vision Capture Buttons
+        vbar = ctk.CTkFrame(p, fg_color="transparent")
+        vbar.pack(fill="x", padx=15, pady=(0,8))
+
+        HackerButton(vbar, "📸 CROP SCREEN SNIP (DRAG BOX)", self._start_interactive_snip, height=48).pack(side="left", fill="x", expand=True, padx=(0,6))
+        HackerButton(vbar, "🖥 FULLSCREEN CAPTURE (T-3s)", self.start_vision_generation, height=48, color=SURFACE, text_col=NEON_GREEN).pack(side="right", fill="x", expand=True, padx=(6,0))
+
+        ctk.CTkLabel(p, text="--- OR TYPE PROBLEM STATEMENT ---", font=FS, text_color=MUTED).pack(pady=(0,5))
+
+        self.prompt_entry = ctk.CTkTextbox(p, height=140, fg_color=SURFACE, text_color=NEON_GREEN, font=FB, border_width=2, border_color=DARK_GREEN, corner_radius=0)
+        self.prompt_entry.pack(fill="both", expand=True, padx=15, pady=(0,10))
+
+        # Action Buttons
+        act_bar = ctk.CTkFrame(p, fg_color="transparent")
+        act_bar.pack(fill="x", padx=15, pady=(0,15))
+
+        HackerButton(act_bar, "GENERATE & INJECT CODE", self.start_text_generation, height=46).pack(side="left", fill="x", expand=True, padx=(0,6))
+        HackerButton(act_bar, "🎓 VIVA SHEET", self._generate_viva_for_current, height=46, color=SURFACE, text_col=NEON_GREEN, width=150).pack(side="left", padx=3)
+        HackerButton(act_bar, "🧪 TEST CASES", self._predict_test_cases_for_current, height=46, color=SURFACE, text_col=NEON_GREEN, width=150).pack(side="left", padx=(3,0))
 
     def _build_manual_tab(self, p):
         ctk.CTkLabel(p, text="PASTE CODE PAYLOAD TO INJECT:", font=FH2, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(15,5))
@@ -1197,6 +3040,85 @@ class AutoCoderApp(ctk.CTk):
         self.manual_code_box = ctk.CTkTextbox(p, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=2, border_color=DARK_GREEN, corner_radius=0)
         self.manual_code_box.pack(fill="both", expand=True, padx=20, pady=(0,15))
         HackerButton(p, "INITIATE MANUAL INJECTION", self.start_direct_typing, height=55).pack(fill="x", padx=20, pady=(0,15))
+
+    # ── STUDENT: VIVA & EXPLAINER TAB ────────────────────────────────────────
+    def _build_viva_tab(self, p):
+        top = ctk.CTkFrame(p, fg_color="transparent")
+        top.pack(fill="x", padx=15, pady=(15,5))
+        ctk.CTkLabel(top, text=">_ VIVA & EXAM CHEAT SHEET GENERATOR", font=FH2, text_color=NEON_GREEN).pack(side="left")
+
+        HackerButton(top, "⟳ ANALYZE CURRENT CODE", self._generate_viva_for_current, height=32, color=SURFACE, text_col=NEON_GREEN).pack(side="right")
+
+        card = HackerCard(p)
+        card.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(card, text="Instant breakdown of algorithm, time/space complexity, and common examiner questions.", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=15, pady=8)
+
+        self.viva_box = ctk.CTkTextbox(p, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=2, border_color=DARK_GREEN, corner_radius=0)
+        self.viva_box.pack(fill="both", expand=True, padx=15, pady=(5,15))
+        self.viva_box.insert("end", "[*] No code analyzed yet.\n\nGenerate or paste code in AI Module or Offline Vault, then click '⟳ ANALYZE CURRENT CODE' to generate a complete college viva cheat sheet!\n")
+
+    # ── STUDENT: TEST CASES PREDICTOR TAB ────────────────────────────────────
+    def _build_test_cases_tab(self, p):
+        top = ctk.CTkFrame(p, fg_color="transparent")
+        top.pack(fill="x", padx=15, pady=(15,5))
+        ctk.CTkLabel(top, text=">_ TEST CASE & EDGE CASE PREDICTOR", font=FH2, text_color=NEON_GREEN).pack(side="left")
+
+        HackerButton(top, "⟳ PREDICT TEST CASES", self._predict_test_cases_for_current, height=32, color=SURFACE, text_col=NEON_GREEN).pack(side="right")
+
+        card = HackerCard(p)
+        card.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(card, text="Predicts 3 custom input/output test suites and identifies critical edge cases (overflow, negatives, nulls).", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=15, pady=8)
+
+        self.test_cases_box = ctk.CTkTextbox(p, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=2, border_color=DARK_GREEN, corner_radius=0)
+        self.test_cases_box.pack(fill="both", expand=True, padx=15, pady=(5,15))
+        self.test_cases_box.insert("end", "[*] Click '⟳ PREDICT TEST CASES' to evaluate the current code or prompt against hidden test cases and boundary conditions.\n")
+
+    # ── STUDENT: OFFLINE DSA VAULT TAB ───────────────────────────────────────
+    def _build_offline_vault_tab(self, p):
+        top = ctk.CTkFrame(p, fg_color="transparent")
+        top.pack(fill="x", padx=15, pady=(15,5))
+        ctk.CTkLabel(top, text=">_ OFFLINE DSA LAB REPOSITORY (ZERO INTERNET)", font=FH2, text_color=NEON_GREEN).pack(side="left")
+
+        # Controls Card
+        ctrl = HackerCard(p)
+        ctrl.pack(fill="x", padx=15, pady=5)
+
+        r = ctk.CTkFrame(ctrl, fg_color="transparent")
+        r.pack(fill="x", padx=15, pady=10)
+
+        ctk.CTkLabel(r, text="ALGORITHM:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
+        algo_names = list(OFFLINE_DSA_VAULT.keys())
+        self.vault_algo_var = ctk.StringVar(value=algo_names[0] if algo_names else "Binary Search")
+        ctk.CTkComboBox(r, values=algo_names, variable=self.vault_algo_var, command=lambda v: self._update_vault_preview(),
+                        width=220, fg_color=SURFACE, text_color=NEON_GREEN, border_color=DARK_GREEN, button_color=DARK_GREEN, font=FB).pack(side="left", padx=(0,20))
+
+        ctk.CTkLabel(r, text="LANGUAGE:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(0,10))
+        self.vault_lang_var = ctk.StringVar(value="python")
+        ctk.CTkSegmentedButton(r, values=["python", "cpp", "java"], variable=self.vault_lang_var, command=lambda v: self._update_vault_preview(),
+                               selected_color=DARK_GREEN, selected_hover_color=NEON_GREEN, fg_color=SURFACE, text_color=NEON_GREEN, font=FB).pack(side="left", padx=(0,20))
+
+        HackerButton(r, "⚡ INJECT ALGORITHM", self._inject_vault_code, height=36).pack(side="right")
+
+        # Code preview
+        self.vault_code_box = ctk.CTkTextbox(p, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=2, border_color=DARK_GREEN, corner_radius=0)
+        self.vault_code_box.pack(fill="both", expand=True, padx=15, pady=(5,15))
+        self._update_vault_preview()
+
+    def _update_vault_preview(self):
+        algo = self.vault_algo_var.get()
+        lang = self.vault_lang_var.get()
+        code_snip = OFFLINE_DSA_VAULT.get(algo, {}).get(lang, "# Solution not found")
+        if hasattr(self, "vault_code_box"):
+            self.vault_code_box.delete("1.0", "end")
+            self.vault_code_box.insert("end", code_snip)
+            self.last_generated_code = code_snip
+            self.last_generated_lang = lang
+
+    def _inject_vault_code(self):
+        code_to_type = self.vault_code_box.get("1.0", "end").strip()
+        if code_to_type:
+            self.start_direct_typing_payload(code_to_type)
+
 
     # ── ADMIN: LIVE MONITOR TAB (ONLY FOR ADMIN) ─────────────────────────────
     def _build_live_monitor_tab(self, p):
@@ -1380,6 +3302,52 @@ class AutoCoderApp(ctk.CTk):
 
         self._refresh_admin_tree()
 
+        # ── GLOBAL UPDATE NOTIFICATION & RELEASE BROADCASTER ─────────────────
+        b_card = HackerCard(p)
+        b_card.pack(fill="x", padx=10, pady=(10, 5))
+
+        b_hdr = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_hdr.pack(fill="x", padx=15, pady=(8, 4))
+        ctk.CTkLabel(b_hdr, text="📢 GLOBAL UPDATE NOTIFICATION & RELEASE BROADCASTER", font=FB, text_color=NEON_GREEN).pack(side="left")
+        ctk.CTkLabel(b_hdr, text="(ADMIN ONLY - PUSHES TO ALL STUDENT SCREENS)", font=FS, text_color=MUTED).pack(side="right")
+
+        b_grid = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_grid.pack(fill="x", padx=15, pady=3)
+
+        ctk.CTkLabel(b_grid, text="Target Version:", font=FS, text_color=MUTED).grid(row=0, column=0, padx=4, pady=2, sticky="e")
+        self.admin_upd_v_entry = HackerEntry(b_grid, placeholder="e.g. v3.1 or v4.0")
+        self.admin_upd_v_entry.grid(row=0, column=1, padx=4, pady=2, sticky="ew")
+        self.admin_upd_v_entry.insert(0, APP_VERSION)
+
+        ctk.CTkLabel(b_grid, text="Direct Binary URL:", font=FS, text_color=MUTED).grid(row=0, column=2, padx=4, pady=2, sticky="e")
+        self.admin_upd_url_entry = HackerEntry(b_grid, placeholder="Direct download URL to AgentPrayath.exe (GitHub/Drive/Dropbox)")
+        self.admin_upd_url_entry.grid(row=0, column=3, padx=4, pady=2, sticky="ew")
+
+        ctk.CTkLabel(b_grid, text="Announcement / Msg:", font=FS, text_color=MUTED).grid(row=1, column=0, padx=4, pady=2, sticky="e")
+        self.admin_upd_msg_entry = HackerEntry(b_grid, placeholder="What's new in this release (e.g. Fixed DSA Vault, added Exam Predictor)...")
+        self.admin_upd_msg_entry.grid(row=1, column=1, columnspan=3, padx=4, pady=2, sticky="ew")
+
+        b_grid.columnconfigure(1, weight=1)
+        b_grid.columnconfigure(3, weight=2)
+
+        b_opts = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_opts.pack(fill="x", padx=15, pady=3)
+
+        self.admin_upd_popup_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(b_opts, text="Trigger Instant Pop-up Modal on Student Screens", variable=self.admin_upd_popup_var,
+                        fg_color=DARK_GREEN, hover_color=NEON_GREEN, text_color=TEXT, font=FS).pack(side="left")
+
+        b_act = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_act.pack(fill="x", padx=15, pady=(4, 8))
+
+        HackerButton(b_act, "📢 BROADCAST UPDATE TO ALL USERS", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
+        HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left")
+
+        self.admin_broadcast_status = ctk.CTkLabel(b_act, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=MUTED, anchor="w")
+        self.admin_broadcast_status.pack(side="left", padx=15, fill="x", expand=True)
+
+        self.after(800, self._load_current_broadcast_info)
+
     def _admin_sync_cloud(self):
         def _task():
             self.update_status("[*] FETCHING LIVE DATABASE FROM FIREBASE...")
@@ -1443,6 +3411,7 @@ class AutoCoderApp(ctk.CTk):
         }
         self.admin_db[roll] = data
         set_student(roll, data)
+        save_local_db(self.admin_db)
         self._refresh_admin_tree()
         self.update_status(f"[+] Added user {roll} to Firebase Cloud")
 
@@ -1461,6 +3430,7 @@ class AutoCoderApp(ctk.CTk):
             self.admin_db[roll] = patch
 
         update_student(roll, patch)
+        save_local_db(self.admin_db)
         self._refresh_admin_tree()
         self.update_status(f"[*] Updated user {roll} in Firebase Cloud")
 
@@ -1469,6 +3439,7 @@ class AutoCoderApp(ctk.CTk):
         if roll in self.admin_db:
             del self.admin_db[roll]
             delete_student(roll)
+            save_local_db(self.admin_db)
             self._refresh_admin_tree()
             self.edt_roll.delete(0,"end"); self.edt_name.delete(0,"end"); self.edt_branch.delete(0,"end"); self.edt_pw.delete(0,"end")
             self.update_status(f"[-] Deleted user {roll} from Firebase Cloud")
@@ -1523,6 +3494,18 @@ class AutoCoderApp(ctk.CTk):
         ctk.CTkLabel(eform, text="NEW PASSWORD:", font=FS, text_color=NEON_GREEN).grid(row=3, column=0, sticky="e", padx=5, pady=5)
         self.prof_pw = HackerEntry(eform, show="*"); self.prof_pw.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
         if pr.get("password"): self.prof_pw.insert(0, pr.get("password"))
+
+        ctk.CTkLabel(eform, text="GEMINI API KEY:", font=FS, text_color=NEON_GREEN).grid(row=4, column=0, sticky="e", padx=5, pady=5)
+        self.prof_api = HackerEntry(eform, show="*", placeholder="Paste Gemini API key (starts with AIzaSy...)...")
+        self.prof_api.grid(row=4, column=1, sticky="ew", padx=5, pady=5)
+        if pr.get("api_key"): self.prof_api.insert(0, pr.get("api_key"))
+
+        api_act_row = ctk.CTkFrame(eform, fg_color="transparent")
+        api_act_row.grid(row=5, column=1, sticky="ew", padx=5, pady=(2, 6))
+        HackerButton(api_act_row, "⚡ TEST KEY", self._test_profile_api, height=30, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left", padx=(0, 6))
+        HackerButton(api_act_row, "🔑 GET FREE KEY", lambda: webbrowser.open("https://aistudio.google.com/app/apikey"), height=30, color=SURFACE, text_col=MUTED, font=FS).pack(side="left")
+        self.lbl_profile_api_res = ctk.CTkLabel(api_act_row, text="", font=FS, text_color=NEON_GREEN)
+        self.lbl_profile_api_res.pack(side="left", padx=10)
 
         eform.columnconfigure(1, weight=1)
 
@@ -1585,6 +3568,9 @@ class AutoCoderApp(ctk.CTk):
         if hasattr(self, "prof_pw") and pr.get("password"):
             self.prof_pw.delete(0, "end")
             self.prof_pw.insert(0, pr.get("password", ""))
+        if hasattr(self, "prof_api"):
+            self.prof_api.delete(0, "end")
+            self.prof_api.insert(0, pr.get("api_key", ""))
 
         if hasattr(self, "prof_msg"):
             self.prof_msg.configure(text="[+] INTERFACE, PROFILE & DATABASE REFRESHED FROM CLOUD!", text_color=NEON_GREEN)
@@ -1595,6 +3581,28 @@ class AutoCoderApp(ctk.CTk):
             self._refresh_admin_tree()
 
         self.update_status("[+] INTERFACE AND DATABASE FULLY UPDATED!")
+
+    def _test_profile_api(self):
+        k = self.prof_api.get().strip() if hasattr(self, "prof_api") else ""
+        if not k:
+            self.lbl_profile_api_res.configure(text="[-] Please enter key first.", text_color=DANGER)
+            return
+        self.lbl_profile_api_res.configure(text="[*] Testing with Google Cloud...", text_color=NEON_GREEN)
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                try:
+                    if ok:
+                        self.lbl_profile_api_res.configure(text=f"🟢 {msg[:45]}", text_color=NEON_GREEN)
+                    else:
+                        self.lbl_profile_api_res.configure(text=f"🔴 {msg[:45]}", text_color=DANGER)
+                except Exception:
+                    pass
+            try:
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
 
     def _check_update_and_refresh_ui(self):
         """
@@ -1636,6 +3644,7 @@ class AutoCoderApp(ctk.CTk):
         branch = self.prof_branch.get().strip()
         phone = self.prof_phone.get().strip()
         new_pw = self.prof_pw.get().strip()
+        new_api = self.prof_api.get().strip() if hasattr(self, "prof_api") else self.session.get("api_key", "")
 
         if new_pw and len(new_pw) < 4:
             self.prof_msg.configure(text="Password must be at least 4 characters long.", text_color=DANGER)
@@ -1645,14 +3654,33 @@ class AutoCoderApp(ctk.CTk):
         self.session["name"] = name
         self.session["branch"] = branch
         self.session["phone"] = phone
+        self.session["api_key"] = new_api
         if new_pw: self.session["password"] = new_pw
         save_session(self.session)
 
-        # Update Firebase Cloud
+        # Re-initialize backend with new API key
+        self.backend = AntigravityBackend(new_api)
+        if hasattr(self, "lbl_prof_api"):
+            self.lbl_prof_api.configure(text=f"API STATUS: {'ACTIVE' if new_api else 'OFFLINE'}",
+                                        text_color=NEON_GREEN if new_api else WARNING)
+        if hasattr(self, "_build_ai_tab") and "AI_MODULE" in getattr(self, "frames", {}):
+            self._build_ai_tab(self.frames["AI_MODULE"])
+
+        # Update Firebase Cloud & local cache
         if roll:
             patch = {"name": name, "branch": branch, "phone": phone}
             if new_pw: patch["password"] = new_pw
             update_student(roll, patch)
+            try:
+                local_db = load_cloud_db()
+                if roll in local_db and isinstance(local_db[roll], dict):
+                    local_db[roll].update(patch)
+                    save_local_db(local_db)
+            except Exception:
+                pass
+
+        self.prof_msg.configure(text="[+] PROFILE & API KEY SAVED SUCCESSFULLY!", text_color=NEON_GREEN)
+        self.update_status("[+] Profile & API configuration saved.")
 
         self._apply_interface_refresh()
         self.prof_msg.configure(text="[+] PROFILE & PASSWORD SYNCHRONIZED WITH FIREBASE CLOUD!", text_color=NEON_GREEN)
@@ -1738,9 +3766,16 @@ class AutoCoderApp(ctk.CTk):
 
         def _worker():
             self.after(0, lambda: self.tab_update_prog.set(0.5))
-            ok, v = perform_system_update(_log_cb)
+            res = perform_system_update(_log_cb)
+            if isinstance(res, tuple) and len(res) == 3:
+                ok, v, new_exe = res
+            elif isinstance(res, tuple) and len(res) == 2:
+                ok, v = res; new_exe = None
+            else:
+                ok, v, new_exe = True, APP_VERSION, None
             self.after(0, lambda: self.tab_update_prog.set(1.0))
             if ok:
+                self._new_exe_path = new_exe
                 _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
                 _log_cb("[*] Restarting application in 2 seconds...")
                 self.after(0, lambda: messagebox.showinfo(
@@ -1754,17 +3789,23 @@ class AutoCoderApp(ctk.CTk):
 
     def _restart_application(self):
         self._shutdown_event.set()
+        self.logged_out = False
+        try:
+            if hasattr(self, "kb_listener") and self.kb_listener:
+                self.kb_listener.stop()
+        except Exception:
+            pass
         try:
             roll = self.session.get("roll") or self.session.get("name", "USER")
             remove_online_presence(roll)
         except Exception:
             pass
-        self.destroy()
         try:
-            subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+            self.destroy()
         except Exception:
-            subprocess.Popen(["python", "vision_agent.py"])
-        sys.exit(0)
+            pass
+        new_exe = getattr(self, "_new_exe_path", None)
+        safe_restart_app(new_exe)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     def update_status(self, t):
@@ -1786,7 +3827,12 @@ class AutoCoderApp(ctk.CTk):
     def _start_emergency_listener(self):
         def on_press(k):
             if k in (Key.f8, Key.esc) and self.is_typing: self.abort_execution()
-        l = keyboard.Listener(on_press=on_press); l.daemon = True; l.start()
+        try:
+            self.kb_listener = keyboard.Listener(on_press=on_press)
+            self.kb_listener.daemon = True
+            self.kb_listener.start()
+        except Exception:
+            self.kb_listener = None
 
     def start_vision_generation(self):
         if not self.is_typing: threading.Thread(target=self._run_vision_pipeline, daemon=True).start()
@@ -1888,19 +3934,132 @@ class AutoCoderApp(ctk.CTk):
         self.after(0, self.deiconify)
 
     def _type_into_editor(self, code):
+        char_min, char_max, line_delay = get_cadence_delays(self.typing_speed_var.get())
+        sim_typos = self.typo_sim_var.get()
         lines = code.splitlines()
+
         for idx, line in enumerate(lines):
             if self.stop_typing: break
             for ch in line:
                 if self.stop_typing: break
+
+                # Anti-detection human typo simulation
+                if sim_typos and ch.lower() in TYPO_ADJACENT and random.random() < 0.012:
+                    wrong_ch = TYPO_ADJACENT[ch.lower()]
+                    self.keyboard.type(wrong_ch)
+                    time.sleep(random.uniform(0.12, 0.20))
+                    self.keyboard.press(Key.backspace)
+                    self.keyboard.release(Key.backspace)
+                    time.sleep(random.uniform(0.04, 0.08))
+
                 self.keyboard.type(ch)
                 if ch in "([{\"'":
                     self.keyboard.press(Key.delete); self.keyboard.release(Key.delete)
+                time.sleep(random.uniform(char_min, char_max))
+
             if idx < len(lines)-1 and not self.stop_typing:
                 self.keyboard.press(Key.enter); self.keyboard.release(Key.enter)
-                time.sleep(0.01)
+                time.sleep(line_delay)
 
-    # ── Pipelines ─────────────────────────────────────────────────────────────
+    
+    # ── STUDENT v3.0 ACTION HANDLERS ──────────────────────────────────────────
+    def _toggle_ghost_hud(self):
+        if not self.ghost_hud or not self.ghost_hud.winfo_exists():
+            self.withdraw()
+            self.ghost_hud = GhostHUD(self)
+        else:
+            self.ghost_hud.destroy()
+            self.ghost_hud = None
+            self.deiconify()
+
+    def _toggle_theme(self):
+        if self.current_theme == "matrix":
+            self.current_theme = "office"
+            self.configure(fg_color="#f0f2f5")
+            self.main_panel.configure(fg_color="#ffffff", border_color="#cccccc")
+            self.sidebar.configure(fg_color="#f8f9fa", border_color="#cccccc")
+            self.update_status("[+] STEALTH THEME ACTIVE: PLAIN OFFICE MODE")
+        else:
+            self.current_theme = "matrix"
+            self.configure(fg_color=BG)
+            self.main_panel.configure(fg_color=CARD, border_color=BORDER_LT)
+            self.sidebar.configure(fg_color=CARD, border_color=BORDER_LT)
+            self.update_status("[+] CYBERPUNK MATRIX THEME RESTORED")
+
+    def _start_interactive_snip(self):
+        self.withdraw()
+        def _cb(cropped_img):
+            self.deiconify()
+            self._process_cropped_snip(cropped_img)
+        ScreenSnipper(_cb)
+
+    def _process_cropped_snip(self, cropped_img):
+        def _task():
+            self.is_typing = True; self.stop_typing = False; self._disable_buttons()
+            try:
+                self.update_status("[*] TRANSMITTING CROPPED QUESTION TO AI CORE...")
+                lang = self.lang_var.get()
+                fmt = self.format_var.get()
+                sol_m = self.sol_type_var.get()
+                code = self.backend.from_image(cropped_img, lang, format_type=fmt, mode=sol_m)
+                self.last_generated_code = code
+                self.last_generated_lang = lang
+                self.preview_box.delete("1.0", "end")
+                self.preview_box.insert("end", code)
+                self._execute_code_injection(code, lang, enable_autonomous=True)
+            except Exception as ex:
+                self.update_status(f"[!] UPLINK ERROR: {ex}")
+            finally:
+                self.is_typing = False; self.stop_typing = False; self._enable_buttons()
+                self.after(0, self.deiconify)
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _generate_viva_for_current(self):
+        code_to_check = self.last_generated_code or self.preview_box.get("1.0", "end").strip() or self.prompt_entry.get("1.0", "end").strip()
+        if not code_to_check:
+            messagebox.showinfo("VIVA GENERATOR", "Generate or paste code in AI Module first.")
+            return
+        self.show_frame("VIVA_NOTES")
+        self.viva_box.delete("1.0", "end")
+        self.viva_box.insert("end", "[*] Generating college viva cheat sheet & examiner questions...\n")
+
+        def _task():
+            try:
+                notes = self.backend.generate_viva_notes(code_to_check, self.lang_var.get())
+                def _ui():
+                    self.viva_box.delete("1.0", "end")
+                    self.viva_box.insert("end", notes)
+                self.after(0, _ui)
+            except Exception as e:
+                self.after(0, lambda: self.viva_box.insert("end", f"\n[!] Viva Error: {e}"))
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _predict_test_cases_for_current(self):
+        code_to_check = self.last_generated_code or self.preview_box.get("1.0", "end").strip() or self.prompt_entry.get("1.0", "end").strip()
+        if not code_to_check:
+            messagebox.showinfo("TEST CASE PREDICTOR", "Generate or paste code in AI Module first.")
+            return
+        self.show_frame("TEST_CASES")
+        self.test_cases_box.delete("1.0", "end")
+        self.test_cases_box.insert("end", "[*] Evaluating hidden test cases and boundary edge conditions...\n")
+
+        def _task():
+            try:
+                cases = self.backend.predict_test_cases(code_to_check, self.lang_var.get())
+                def _ui():
+                    self.test_cases_box.delete("1.0", "end")
+                    self.test_cases_box.insert("end", cases)
+                self.after(0, _ui)
+            except Exception as e:
+                self.after(0, lambda: self.test_cases_box.insert("end", f"\n[!] Test Suite Error: {e}"))
+        threading.Thread(target=_task, daemon=True).start()
+
+    def start_direct_typing_payload(self, code):
+        if self.is_typing: return
+        threading.Thread(target=self._run_direct_pipeline, args=(code,), daemon=True).start()
+
+
+# ── Pipelines ─────────────────────────────────────────────────────────────
     def _run_vision_pipeline(self):
         self.is_typing=True; self.stop_typing=False; self._disable_buttons()
         try:
@@ -1909,7 +4068,8 @@ class AutoCoderApp(ctk.CTk):
                 self.update_status(f"[T-{rem}] INITIATE SCREEN CAPTURE..."); time.sleep(1)
             if self.stop_typing: return
             ss = ImageGrab.grab(); self.update_status("[*] TRANSMITTING TO AI CORE...")
-            lang = self.lang_var.get(); code = self.backend.from_image(ss, lang)
+            lang = self.lang_var.get(); code = self.backend.from_image(ss, lang, format_type=self.format_var.get(), mode=self.sol_type_var.get())
+            self.last_generated_code = code; self.last_generated_lang = lang
             self.preview_box.delete("1.0","end"); self.preview_box.insert("end",code)
             self._execute_code_injection(code, lang, enable_autonomous=True)
         except Exception as ex:
@@ -1924,7 +4084,8 @@ class AutoCoderApp(ctk.CTk):
         self.is_typing=True; self.stop_typing=False; self._disable_buttons()
         try:
             self.update_status("[*] GENERATING PAYLOAD..."); lang=self.lang_var.get()
-            code = self.backend.from_text(prompt, lang)
+            code = self.backend.from_text(prompt, lang, format_type=self.format_var.get(), mode=self.sol_type_var.get())
+            self.last_generated_code = code; self.last_generated_lang = lang
             self.preview_box.delete("1.0","end"); self.preview_box.insert("end",code)
             self._execute_code_injection(code, lang, enable_autonomous=True)
         except Exception as ex:
@@ -1967,21 +4128,33 @@ class AutoCoderApp(ctk.CTk):
 
 # ── APPLICATION ENTRY POINT ───────────────────────────────────────────────────
 if __name__ == "__main__":
-    session = load_session()
+    while True:
+        session = load_session()
 
-    # If valid session already exists and no re-auth requested, launch main app directly
-    if session.get("role") and (len(sys.argv) == 1 or sys.argv[1] == "--main"):
+        # If no active role / session, run login wizard first
+        if not session.get("role"):
+            wizard = OnboardingWizard()
+            wizard.mainloop()
+            if not getattr(wizard, "success", False):
+                # User closed the login window without completing authentication
+                break
+            session = load_session()
+            if not session.get("role"):
+                break
+
         try:
             app = AutoCoderApp(session)
             app.mainloop()
         except Exception as e:
             import traceback
-            with open("error_log.txt", "w") as f:
+            with open("error_log.txt", "w", encoding="utf-8") as f:
                 f.write(traceback.format_exc())
-    else:
-        wizard = OnboardingWizard()
-        wizard.mainloop()
-        if wizard.success:
-            sess = load_session()
-            app = AutoCoderApp(sess)
-            app.mainloop()
+            break
+
+        # Check if user clicked LOGOUT
+        if getattr(app, "logged_out", False):
+            # Session was cleared in _logout, restart the loop to present OnboardingWizard smoothly!
+            continue
+        else:
+            # User closed window normally, exit the application
+            break
