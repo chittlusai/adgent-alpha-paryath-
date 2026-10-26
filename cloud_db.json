@@ -970,9 +970,9 @@
   },
   "26B11AI183": {
     "branch": "AIML",
-    "father_phone": "9849764678",
     "name": "CHERUKURI HEMANTH LAKSHMAN",
-    "phone": "9849764678",
+    "password": "lakshman",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11AI185": {
@@ -6913,7 +6913,8 @@
   "26B11DS407": {
     "branch": "DS",
     "name": "MEKA SASIDHAR",
-    "phone": "9876543210",
+    "password": "sasi270209",
+    "phone": "N/A",
     "university": "Aditya University"
   },
   "26B11DS430": {
