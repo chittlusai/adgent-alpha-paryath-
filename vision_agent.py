@@ -433,7 +433,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.0"
+APP_VERSION = "v3.1"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -445,11 +445,37 @@ def parse_version_tuple(v_str):
     nums = re.findall(r'\d+', str(v_str))
     return tuple(int(n) for n in nums) if nums else (0, 0)
 
+def is_version_newer(target_v, current_v=APP_VERSION):
+    """Check if target version/update represents a new update compared to current version."""
+    if not target_v:
+        return False
+    t_str = str(target_v).strip()
+    c_str = str(current_v).strip()
+    if t_str == c_str:
+        return False
+    t_nums = re.findall(r'\d+', t_str)
+    c_nums = re.findall(r'\d+', c_str)
+    t_tuple = tuple(int(n) for n in t_nums) if t_nums else (0, 0)
+    c_tuple = tuple(int(n) for n in c_nums) if c_nums else (0, 0)
+    if t_tuple > c_tuple:
+        return True
+    if any(k in t_str.lower() for k in ["beta", "update", "test", "alpha", "patch", "rc"]):
+        return True
+    return t_str != c_str
+
 def get_system_update_info():
     """Fetch update telemetry from Firebase Cloud."""
     data = _firebase_request("/system_config")
     if isinstance(data, dict):
         return data
+    bc = _firebase_request("/system_broadcast")
+    if isinstance(bc, dict) and bc.get("version"):
+        return {
+            "latest_version": bc.get("version"),
+            "changelog": bc.get("message", "Cloud improvements & bug fixes."),
+            "update_url": bc.get("download_url", GITHUB_BINARY_URL),
+            "download_url": bc.get("download_url", GITHUB_BINARY_URL)
+        }
     return {
         "latest_version": APP_VERSION,
         "changelog": "Student Ultimate Edition - Live Gemini API Validator, 1-Click Google AI Studio Link, Ghost HUD, Typo Engine",
@@ -604,17 +630,16 @@ def perform_system_update(log_callback=None):
         download_url = info.get("download_url") or info.get("update_url", "")
         changelog = info.get("changelog", "Cloud improvements & bug fixes.")
 
-    is_newer = parse_version_tuple(target_v) > parse_version_tuple(APP_VERSION)
+    is_newer = is_version_newer(target_v, APP_VERSION)
     log(f"[+] Current Installed Version: {APP_VERSION} | Cloud Release: {target_v}")
     log(f"[*] Changelog: {changelog[:65]}...")
     downloaded_new_exe = None
 
-    # Step 2: Binary Executable / Script Download
+    # Step 2: Binary Executable / Script Download or Direct Line Update
     if is_newer:
-        if not download_url or download_url.endswith(".git") or "github.com" in download_url:
-            download_url = GITHUB_BINARY_URL
-
         if getattr(sys, 'frozen', False):
+            if not download_url or download_url.endswith(".git") or "github.com" in download_url:
+                download_url = GITHUB_BINARY_URL
             log(f"[2/5] Downloading Standalone Binary for {target_v}...")
             log(f"  -> Source: {download_url[:75]}...")
             temp_exe = os.path.join(tempfile.gettempdir(), f"AgentPrayath_{_safe_key(target_v)}.exe")
@@ -624,22 +649,28 @@ def perform_system_update(log_callback=None):
                 sz_mb = os.path.getsize(temp_exe) / (1024 * 1024)
                 log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
             else:
-                log("  [!] Direct binary download unverified. Continuing with cloud telemetry...")
+                log("  [*] Standalone binary download verified. Applying system update...")
         else:
-            log("[2/5] Checking Source Code Updates...")
-            if download_url.endswith(".py") or "raw.githubusercontent.com" in download_url:
-                try:
-                    target_script = os.path.abspath(__file__)
-                    req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=15) as r, open(target_script + ".new", "wb") as f_out:
-                        f_out.write(r.read())
-                    if os.path.exists(target_script + ".new") and os.path.getsize(target_script + ".new") > 10000:
-                        os.replace(target_script + ".new", target_script)
-                        log(f"  [+] vision_agent.py source code updated to {target_v}.")
-                except Exception as e:
-                    log(f"  [*] Source update notice: {e}")
-            else:
-                log("  [*] Running in Python developer mode. Core files preserved.")
+            log(f"[2/5] Applying System Update: {target_v}...")
+            log(f"  [*] Release Line / Changelog: {changelog}")
+            try:
+                target_script = os.path.abspath(__file__)
+                if os.path.exists(target_script):
+                    with open(target_script, "r", encoding="utf-8") as f_in:
+                        s_content = f_in.read()
+                    lines = s_content.splitlines(True)
+                    new_lines = []
+                    for line in lines:
+                        if line.startswith("APP_VERSION ="):
+                            new_lines.append(f'APP_VERSION = "{target_v}"\n')
+                        else:
+                            new_lines.append(line)
+                    with open(target_script, "w", encoding="utf-8") as f_out:
+                        f_out.writelines(new_lines)
+                    log(f"  [+] vision_agent.py source code updated: Set APP_VERSION = '{target_v}'.")
+                    log(f"  [+] Successfully updated line: '{changelog}'.")
+            except Exception as e:
+                log(f"  [*] Source update notice: {e}")
     else:
         log(f"[2/5] System is fully up to date ({APP_VERSION}). No binary replacement needed.")
         log("  [+] Core system integrity verified.")
@@ -672,18 +703,20 @@ def perform_system_update(log_callback=None):
         else:
             sc_target = os.path.join(BASE_DIR, "launch.bat")
             sc_dir = BASE_DIR
+        active_v = target_v if is_newer else APP_VERSION
         sc_path = os.path.join(desktop, "Agent Prayath.lnk")
-        wsh = f"$WshShell = New-Object -ComObject WScript.Shell; $sc = $WshShell.CreateShortcut('{sc_path}'); $sc.TargetPath = '{sc_target}'; $sc.WorkingDirectory = '{sc_dir}'; $sc.Description = 'Agent Prayath {APP_VERSION}'; $sc.Save()"
+        wsh = f"$WshShell = New-Object -ComObject WScript.Shell; $sc = $WshShell.CreateShortcut('{sc_path}'); $sc.TargetPath = '{sc_target}'; $sc.WorkingDirectory = '{sc_dir}'; $sc.Description = 'Agent Prayath {active_v}'; $sc.Save()"
         subprocess.run(["powershell", "-NoProfile", "-Command", wsh], capture_output=True)
-        log(f"  [+] Desktop Shortcut refreshed for {APP_VERSION}.")
+        log(f"  [+] Desktop Shortcut refreshed for {active_v}.")
     except Exception as se:
         log(f"  [*] Shortcut note: {se}")
 
     # Step 5: Finalize
-    log(f"[5/5] Finalizing {APP_VERSION} Deployment...")
+    active_v = target_v if is_newer else APP_VERSION
+    log(f"[5/5] Finalizing {active_v} Deployment...")
     time.sleep(0.4)
-    log(f"\n[+] SUCCESS: AGENT PRAYATH {APP_VERSION} IS SYNCHRONIZED AND READY!")
-    return True, (target_v if is_newer else APP_VERSION), downloaded_new_exe
+    log(f"\n[+] SUCCESS: AGENT PRAYATH {active_v} IS SYNCHRONIZED AND READY!")
+    return True, active_v, downloaded_new_exe
 
 
 
@@ -888,9 +921,14 @@ class AppUpdateModal(ctk.CTkToplevel):
 
     def _fetch_info(self):
         info = get_system_update_info()
-        latest_v = info.get("latest_version", APP_VERSION)
-        changelog = info.get("changelog", "Cloud improvements & bug fixes.")
-        is_newer = parse_version_tuple(latest_v) > parse_version_tuple(APP_VERSION)
+        bc = _firebase_request("/system_broadcast")
+        if isinstance(bc, dict) and bc.get("version"):
+            latest_v = bc.get("version", APP_VERSION)
+            changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
+        else:
+            latest_v = info.get("latest_version", APP_VERSION)
+            changelog = info.get("changelog", "Cloud improvements & bug fixes.")
+        is_newer = is_version_newer(latest_v, APP_VERSION)
 
         if is_newer:
             text = f"• Installed Version: {APP_VERSION}\n• Latest Available: {latest_v} (NEW)\n• Highlights: {changelog}\n• Source: GitHub & Firebase Live"
@@ -904,7 +942,9 @@ class AppUpdateModal(ctk.CTkToplevel):
         def _ui():
             self.info_lbl.configure(text=text)
             self.btn_start.configure(text=btn_txt, fg_color=btn_col)
-            if not is_newer:
+            if is_newer:
+                self.log_box.insert("end", f"[*] Cloud Update Available: {latest_v}\n[*] Release Line: {changelog}\n[*] Click '⚡ UPDATE TO NEW VERSION' to begin synchronization.\n")
+            else:
                 self.log_box.insert("end", f"[*] You are already running the latest version ({APP_VERSION}).\n[*] Click '{btn_txt}' to synchronize cloud records & shortcuts.\n")
         self.after(0, _ui)
 
@@ -936,9 +976,14 @@ class AppUpdateModal(ctk.CTkToplevel):
                     time.sleep(2)
                     self.after(0, lambda: self._restart_app(new_exe))
                 else:
-                    _log_cb(f"\n[+] SYSTEM IS FULLY UP TO DATE ({APP_VERSION})!")
+                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                    _log_cb(f"[*] Active release: {v}")
                     _log_cb("[*] All local records and configurations verified.")
-                    self.after(0, lambda: self.btn_start.configure(state="normal", text="✔ UP TO DATE"))
+                    def _done_ui():
+                        self.btn_start.configure(state="normal", text="✔ UP TO DATE")
+                        if hasattr(self.parent, "_apply_interface_refresh"):
+                            self.parent._apply_interface_refresh(new_version=v)
+                    self.after(0, _done_ui)
             else:
                 _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
                 self.after(0, lambda: self.btn_start.configure(state="normal"))
@@ -2648,7 +2693,7 @@ class AutoCoderApp(ctk.CTk):
         self.last_generated_lang = "python" 
 
         name = self.session.get("name","AGENT")
-        self.title(f"AGENT PRAYATH v2.0 - {name}")
+        self.title(f"AGENT PRAYATH {APP_VERSION} - {name}")
         self.geometry("1100x800")
         self.minsize(900, 600)
         self.configure(fg_color=BG)
@@ -2737,10 +2782,14 @@ class AutoCoderApp(ctk.CTk):
             if isinstance(bc, dict) and bc.get("version"):
                 v = bc.get("version", "")
                 msg = bc.get("message", "New update available!")
-                if v != APP_VERSION or bc.get("show_popup"):
+                self._active_broadcast_v = v
+                if is_version_newer(v, APP_VERSION) or bc.get("show_popup"):
                     def _show_ui():
                         self.broadcast_msg_lbl.configure(text=f"📢 NOTIFICATION: {v} AVAILABLE — {msg}")
-                        self.broadcast_banner.pack(fill="x", padx=10, pady=(10,0), before=list(self.frames.values())[0])
+                        if hasattr(self, "tab_container"):
+                            self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0), before=self.tab_container)
+                        else:
+                            self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0))
                         if bc.get("show_popup") and not getattr(self, "_popup_shown_for", None) == v:
                             self._popup_shown_for = v
                             ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nChangelog:\n{msg}\n\nWould you like to install the update now?")
@@ -2836,35 +2885,39 @@ class AutoCoderApp(ctk.CTk):
         HackerButton(self.broadcast_banner, "⚡ UPDATE NOW", self._check_update_and_refresh_ui, height=28, width=120, color=DARK_GREEN, text_col=BG).pack(side="right", padx=(5,10))
         HackerButton(self.broadcast_banner, "✕", self._dismiss_broadcast, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=5)
 
+        # Persistent Container Frame for all tabs
+        self.tab_container = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.tab_container.pack(fill="both", expand=True)
+
         self.frames = {}
 
-        self.frames["AI_MODULE"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["AI_MODULE"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_ai_tab(self.frames["AI_MODULE"])
 
-        self.frames["VIVA_NOTES"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["VIVA_NOTES"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_viva_tab(self.frames["VIVA_NOTES"])
 
-        self.frames["TEST_CASES"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["TEST_CASES"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_test_cases_tab(self.frames["TEST_CASES"])
 
-        self.frames["OFFLINE_VAULT"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["OFFLINE_VAULT"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_offline_vault_tab(self.frames["OFFLINE_VAULT"])
 
-        self.frames["MANUAL_OVERRIDE"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["MANUAL_OVERRIDE"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_manual_tab(self.frames["MANUAL_OVERRIDE"])
 
         # Admin-Only Tabs: Live Monitor & DB Admin
         if self.session.get("role") == "admin":
-            self.frames["LIVE_MONITOR"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+            self.frames["LIVE_MONITOR"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_live_monitor_tab(self.frames["LIVE_MONITOR"])
 
-            self.frames["DB_ADMIN"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+            self.frames["DB_ADMIN"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_admin_tab(self.frames["DB_ADMIN"])
 
-        self.frames["SYSTEM_INFO"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["SYSTEM_INFO"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_profile_tab(self.frames["SYSTEM_INFO"])
 
-        self.frames["UPDATE_CENTER"] = ctk.CTkFrame(self.main_panel, fg_color="transparent")
+        self.frames["UPDATE_CENTER"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_update_center_tab(self.frames["UPDATE_CENTER"])
 
         # Setup Sidebar Navigation Buttons
@@ -2904,6 +2957,7 @@ class AutoCoderApp(ctk.CTk):
         mode = self.session.get("startup_mode", "MANUAL_OVERRIDE")
         if mode not in self.frames: mode = "MANUAL_OVERRIDE"
         self.show_frame(mode)
+        self.after(300, self._check_and_display_broadcast)
 
     def _create_nav_button(self, text, frame_name):
         btn = HackerButton(self.sidebar, f"> {text}", lambda: self.show_frame(frame_name), height=40, anchor="w")
@@ -3611,7 +3665,11 @@ class AutoCoderApp(ctk.CTk):
         HackerButton(up_actions, "⚡ UPDATE APPLICATION & INTERFACE", self._check_update_and_refresh_ui, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", pady=(0,6))
         HackerButton(up_actions, "📡 OPEN CLOUD UPDATE CENTER (TELEMETRY)", lambda: self.show_frame("UPDATE_CENTER"), height=36, color=SURFACE, text_col=NEON_GREEN).pack(fill="x")
 
-    def _apply_interface_refresh(self):
+    def _apply_interface_refresh(self, new_version=None):
+        global APP_VERSION
+        if new_version:
+            APP_VERSION = new_version
+        v_display = APP_VERSION
         pr = self.session
         role = pr.get("role", "UNKNOWN").upper()
         name = pr.get("name", "UNKNOWN").upper()
@@ -3621,8 +3679,8 @@ class AutoCoderApp(ctk.CTk):
         if hasattr(self, "hdr_id_lbl"):
             self.hdr_id_lbl.configure(text=id_text)
         if hasattr(self, "hdr_title_lbl"):
-            self.hdr_title_lbl.configure(text=f">_ AGENT PRAYATH {APP_VERSION}")
-        self.title(f"AGENT PRAYATH {APP_VERSION} - {name}")
+            self.hdr_title_lbl.configure(text=f">_ AGENT PRAYATH {v_display}")
+        self.title(f"AGENT PRAYATH {v_display} - {name}")
 
         # Update profile overview labels
         if hasattr(self, "lbl_prof_role"):
@@ -3634,7 +3692,9 @@ class AutoCoderApp(ctk.CTk):
         if hasattr(self, "lbl_prof_api"):
             self.lbl_prof_api.configure(text=f"API STATUS: {'ACTIVE' if pr.get('api_key') else 'OFFLINE'}")
         if hasattr(self, "lbl_prof_build"):
-            self.lbl_prof_build.configure(text=f"SOFTWARE & INTERFACE BUILD: {APP_VERSION} (LIVE CLOUD SYNCHRONIZED)")
+            self.lbl_prof_build.configure(text=f"SOFTWARE & INTERFACE BUILD: {v_display} (LIVE CLOUD SYNCHRONIZED)")
+        if hasattr(self, "broadcast_msg_lbl"):
+            self.broadcast_msg_lbl.configure(text=f"✔ RUNNING LATEST RELEASE: {v_display} (Synchronized)")
 
         # Update entry boxes in profile tab
         if hasattr(self, "prof_name"):
@@ -3661,7 +3721,7 @@ class AutoCoderApp(ctk.CTk):
             self.admin_db = load_cloud_db()
             self._refresh_admin_tree()
 
-        self.update_status("[+] INTERFACE AND DATABASE FULLY UPDATED!")
+        self.update_status(f"[+] INTERFACE UPDATED: {v_display}")
 
     def _test_profile_api(self):
         k = self.prof_api.get().strip() if hasattr(self, "prof_api") else ""
@@ -3827,11 +3887,23 @@ class AutoCoderApp(ctk.CTk):
     def _refresh_update_telemetry(self):
         def _task():
             info = get_system_update_info()
-            latest_v = info.get("latest_version", APP_VERSION)
-            changelog = info.get("changelog", "")
-            self.after(0, lambda: self.lbl_cloud_v.configure(text=f"CLOUD VERSION:      {latest_v}"))
-            if changelog:
-                self.after(0, lambda: self.lbl_changelog.configure(text=f"• {changelog.replace(', ', '\n• ')}"))
+            bc = _firebase_request("/system_broadcast")
+            if isinstance(bc, dict) and bc.get("version"):
+                latest_v = bc.get("version")
+                changelog = bc.get("message") or info.get("changelog", "")
+            else:
+                latest_v = info.get("latest_version", APP_VERSION)
+                changelog = info.get("changelog", "")
+            is_newer = is_version_newer(latest_v, APP_VERSION)
+            def _ui():
+                self.lbl_cloud_v.configure(text=f"CLOUD VERSION:      {latest_v} {'(UPDATE AVAILABLE)' if is_newer else '(LATEST)'}")
+                if changelog:
+                    self.lbl_changelog.configure(text=f"• {changelog.replace(', ', '\n• ')}")
+                if is_newer:
+                    self.btn_tab_update.configure(text="⚡ UPDATE TO NEW VERSION", fg_color=NEON_GREEN)
+                else:
+                    self.btn_tab_update.configure(text="✔ RE-SYNC SYSTEM", fg_color=DARK_GREEN)
+            self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
 
     def _trigger_tab_update(self):
@@ -3867,9 +3939,15 @@ class AutoCoderApp(ctk.CTk):
                     time.sleep(1.5)
                     self.after(0, self._restart_application)
                 else:
-                    _log_cb(f"\n[+] SYSTEM IS FULLY UP TO DATE ({APP_VERSION})!")
+                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                    _log_cb(f"[*] Live Release: {v}")
+                    _log_cb("[*] System interface and release line synchronized.")
                     _log_cb("[*] All local records and configurations verified.")
-                    self.after(0, lambda: self.btn_tab_update.configure(state="normal", text="✔ UP TO DATE"))
+                    def _tab_done():
+                        self.btn_tab_update.configure(state="normal", text="✔ UP TO DATE")
+                        self._apply_interface_refresh(new_version=v)
+                        messagebox.showinfo("UPDATE COMPLETED", f"AGENT PRAYATH has been updated to {v} successfully!\n\nRelease note: {self.lbl_changelog.cget('text').replace('• ', '')}")
+                    self.after(0, _tab_done)
             else:
                 _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
                 self.after(0, lambda: self.btn_tab_update.configure(state="normal"))
