@@ -446,22 +446,15 @@ def parse_version_tuple(v_str):
     return tuple(int(n) for n in nums) if nums else (0, 0)
 
 def is_version_newer(target_v, current_v=APP_VERSION):
-    """Check if target version/update represents a new update compared to current version."""
+    """Check if target version strictly represents a newer update compared to current version."""
     if not target_v:
         return False
-    t_str = str(target_v).strip()
-    c_str = str(current_v).strip()
-    if t_str == c_str:
-        return False
-    t_nums = re.findall(r'\d+', t_str)
-    c_nums = re.findall(r'\d+', c_str)
-    t_tuple = tuple(int(n) for n in t_nums) if t_nums else (0, 0)
-    c_tuple = tuple(int(n) for n in c_nums) if c_nums else (0, 0)
-    if t_tuple > c_tuple:
-        return True
-    if any(k in t_str.lower() for k in ["beta", "update", "test", "alpha", "patch", "rc"]):
-        return True
-    return t_str != c_str
+    t_tuple = parse_version_tuple(target_v)
+    c_tuple = parse_version_tuple(current_v)
+    max_len = max(len(t_tuple), len(c_tuple))
+    t_padded = t_tuple + (0,) * (max_len - len(t_tuple))
+    c_padded = c_tuple + (0,) * (max_len - len(c_tuple))
+    return t_padded > c_padded
 
 def get_system_update_info():
     """Fetch update telemetry from Firebase Cloud."""
@@ -1969,7 +1962,6 @@ class OnboardingWizard(ctk.CTk):
         hdr.pack(fill="x", padx=10, pady=10); hdr.pack_propagate(False)
         ctk.CTkLabel(hdr, text=f">_ ROOT ACCESS TERMINAL {APP_VERSION}", font=FH2, text_color=NEON_GREEN).pack(side="left", padx=20)
         ctk.CTkLabel(hdr, text="[CLOUD: FIREBASE ACTIVE]", font=FS, text_color=DARK_GREEN).pack(side="right", padx=15)
-        HackerButton(hdr, "🔄 CHECK UPDATE", self._open_update_modal, height=32, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=10)
 
         self.content = ctk.CTkFrame(self, fg_color=BG)
         self.content.pack(fill="both", expand=True, padx=20, pady=10)
@@ -2009,7 +2001,6 @@ class OnboardingWizard(ctk.CTk):
         HackerButton(self.content, "[2] STUDENT LOGIN", self._render_step_student_login, height=45).pack(fill="x", padx=40, pady=8)
         HackerButton(self.content, "[3] CREATE NEW STUDENT ACCOUNT", self._render_step_student_register, height=45).pack(fill="x", padx=40, pady=8)
         HackerButton(self.content, "[4] AUS LOGIN WITH TEMP ROLL NUMBER", self._render_step_temp_roll_login, height=45).pack(fill="x", padx=40, pady=8)
-        HackerButton(self.content, "🔄 CHECK FOR UPDATES & SYNC CLOUD", self._open_update_modal, height=42, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", padx=40, pady=(15,8))
 
     def _render_step_admin(self):
         self._clear()
@@ -2018,7 +2009,6 @@ class OnboardingWizard(ctk.CTk):
         ctk.CTkLabel(card, text="ENTER MASTER PASSPHRASE:", font=FB, text_color=MUTED, anchor="w").pack(fill="x", padx=20, pady=(15,5))
         self.adm_pw = HackerEntry(card, show="*"); self.adm_pw.pack(fill="x", padx=20, pady=(0,15))
         self.adm_err = ctk.CTkLabel(card, text="", font=FS, text_color=DANGER); self.adm_err.pack(pady=(0,10))
-        HackerButton(card, "🔄 CHECK UPDATE", self._open_update_modal, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, height=36).pack(fill="x", padx=20, pady=(0,15))
 
         r = self._nav()
         HackerButton(r, "AUTHENTICATE", self._verify_admin).pack(side="right")
@@ -2034,7 +2024,7 @@ class OnboardingWizard(ctk.CTk):
             self.user_data["roll"] = "ADMIN_001"
             self.user_data["branch"] = "MAINFRAME"
             self.user_data["university"] = "CENTRAL SECURITY"
-            self._render_step_apikey()
+            self._render_step_welcome()
         else:
             self.adm_err.configure(text="ACCESS DENIED: INVALID MASTER PASSPHRASE.")
 
@@ -2057,7 +2047,6 @@ class OnboardingWizard(ctk.CTk):
 
         self.temp_status_lbl = ctk.CTkLabel(self.temp_card, text="", font=FS, text_color=DANGER)
         self.temp_status_lbl.pack(pady=(0,5))
-        HackerButton(self.temp_card, "🔄 CHECK UPDATE", self._open_update_modal, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, height=36).pack(fill="x", padx=20, pady=(0,10))
 
         # Details frame (populated upon verification)
         self.temp_details_frame = ctk.CTkFrame(self.temp_card, fg_color="transparent")
@@ -2228,16 +2217,12 @@ class OnboardingWizard(ctk.CTk):
 
         self.log_err = ctk.CTkLabel(card, text="", font=FS, text_color=DANGER); self.log_err.pack(pady=(0,5))
 
-        # Check Update button in Student Login Portal
-        HackerButton(card, "🔄 CHECK UPDATE (INTERFACE & CLOUD)", self._open_update_modal, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, height=36).pack(fill="x", padx=20, pady=(5,12))
-
         r = self._nav()
 
         self.btn_forgot = HackerButton(r, "FORGOT PASSWORD", self._show_forgot_password, color=DANGER, hover="#cc0000", text_col="#ffffff")
         self.btn_login = HackerButton(r, "LOGIN", self._verify_student_login)
         self.btn_login.pack(side="right")
         HackerButton(r, "BACK", self._render_step_identity, color=SURFACE, text_col=MUTED).pack(side="left")
-        HackerButton(r, "🔄 CHECK UPDATE", self._open_update_modal, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="left", padx=10)
 
     def _verify_student_login(self):
         entered_id = self.log_roll.get().strip()
@@ -2484,8 +2469,6 @@ class OnboardingWizard(ctk.CTk):
         act_frame.pack(fill="x", padx=25, pady=(5, 15))
 
         continue_btn = HackerButton(act_frame, "LAUNCH AGENT PRAYATH >", self._render_step_apikey, height=45)
-        skip_btn = HackerButton(act_frame, "SKIP ANIMATION >>", self._render_step_apikey, height=35, color=SURFACE, text_col=MUTED)
-        skip_btn.pack(side="right")
 
         def _run_intro_anim():
             full_welcome = "WELCOME PRAYATH"
@@ -2539,7 +2522,8 @@ class OnboardingWizard(ctk.CTk):
             if self._stop_anim.is_set(): return
             try:
                 self.after(0, lambda: top_lbl.configure(text=">_ AGENT PRAYATH FULLY ARMED & READY", text_color=NEON_GREEN))
-                self.after(0, lambda: continue_btn.pack(side="left", fill="x", expand=True, padx=(0, 10)))
+                self.after(0, lambda: continue_btn.pack(fill="x", expand=True))
+                self.after(1200, lambda: self._render_step_apikey() if (self.winfo_exists() and not self._stop_anim.is_set()) else None)
             except Exception:
                 pass
 
@@ -2783,19 +2767,30 @@ class AutoCoderApp(ctk.CTk):
                 v = bc.get("version", "")
                 msg = bc.get("message", "New update available!")
                 self._active_broadcast_v = v
-                if is_version_newer(v, APP_VERSION) or bc.get("show_popup"):
+                if is_version_newer(v, APP_VERSION):
                     def _show_ui():
                         self.broadcast_msg_lbl.configure(text=f"📢 NOTIFICATION: {v} AVAILABLE — {msg}")
                         if hasattr(self, "tab_container"):
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0), before=self.tab_container)
                         else:
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0))
-                        if bc.get("show_popup") and not getattr(self, "_popup_shown_for", None) == v:
+                        if bc.get("show_popup") and getattr(self, "_popup_shown_for", None) != v:
                             self._popup_shown_for = v
                             ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nChangelog:\n{msg}\n\nWould you like to install the update now?")
                             if ans:
                                 self._check_update_and_refresh_ui()
                     self.after(0, _show_ui)
+                else:
+                    # User is running latest version or newer: ensure notification banner is hidden
+                    def _hide_ui():
+                        if hasattr(self, "broadcast_banner"):
+                            self.broadcast_banner.pack_forget()
+                    self.after(0, _hide_ui)
+            else:
+                def _hide_ui():
+                    if hasattr(self, "broadcast_banner"):
+                        self.broadcast_banner.pack_forget()
+                self.after(0, _hide_ui)
         except Exception:
             pass
 
@@ -2859,7 +2854,6 @@ class AutoCoderApp(ctk.CTk):
         self.hdr_id_lbl.pack(side="right", padx=(10,20))
 
         # Student Toolbar
-        HackerButton(hdr, "🔄 CHECK UPDATE", self._check_update_and_refresh_ui, height=34, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right", padx=6)
         HackerButton(hdr, "👻 GHOST HUD", self._toggle_ghost_hud, height=34, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=6)
         HackerButton(hdr, "🎨 STEALTH THEME", self._toggle_theme, height=34, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=6)
 
@@ -3650,8 +3644,7 @@ class AutoCoderApp(ctk.CTk):
         prof_btn_box = ctk.CTkFrame(edit_card, fg_color="transparent")
         prof_btn_box.pack(fill="x", padx=20, pady=(5,15))
 
-        HackerButton(prof_btn_box, "💾 SAVE PROFILE TO CLOUD", self._save_user_profile, height=44).pack(side="left", fill="x", expand=True, padx=(0,5))
-        HackerButton(prof_btn_box, "🔄 UPDATE (SYNC INTERFACE & CLOUD)", self._check_update_and_refresh_ui, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right", fill="x", expand=True, padx=(5,0))
+        HackerButton(prof_btn_box, "💾 SAVE PROFILE TO CLOUD", self._save_user_profile, height=44).pack(fill="x", expand=True)
 
         # Update card in Profile
         up_card = HackerCard(p)
@@ -3662,8 +3655,7 @@ class AutoCoderApp(ctk.CTk):
         up_actions = ctk.CTkFrame(up_card, fg_color="transparent")
         up_actions.pack(fill="x", padx=20, pady=(5,12))
 
-        HackerButton(up_actions, "⚡ UPDATE APPLICATION & INTERFACE", self._check_update_and_refresh_ui, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", pady=(0,6))
-        HackerButton(up_actions, "📡 OPEN CLOUD UPDATE CENTER (TELEMETRY)", lambda: self.show_frame("UPDATE_CENTER"), height=36, color=SURFACE, text_col=NEON_GREEN).pack(fill="x")
+        HackerButton(up_actions, "📡 OPEN CLOUD UPDATE CENTER", lambda: self.show_frame("UPDATE_CENTER"), height=40, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x")
 
     def _apply_interface_refresh(self, new_version=None):
         global APP_VERSION
@@ -3693,8 +3685,8 @@ class AutoCoderApp(ctk.CTk):
             self.lbl_prof_api.configure(text=f"API STATUS: {'ACTIVE' if pr.get('api_key') else 'OFFLINE'}")
         if hasattr(self, "lbl_prof_build"):
             self.lbl_prof_build.configure(text=f"SOFTWARE & INTERFACE BUILD: {v_display} (LIVE CLOUD SYNCHRONIZED)")
-        if hasattr(self, "broadcast_msg_lbl"):
-            self.broadcast_msg_lbl.configure(text=f"✔ RUNNING LATEST RELEASE: {v_display} (Synchronized)")
+        if hasattr(self, "broadcast_banner"):
+            self.broadcast_banner.pack_forget()
 
         # Update entry boxes in profile tab
         if hasattr(self, "prof_name"):
