@@ -300,6 +300,51 @@ def remove_online_presence(roll):
     safe_roll = _safe_key(roll)
     return _firebase_request(f"/online_presence/{safe_roll}", method="DELETE")
 
+def get_user_groups():
+    """Fetch all configured user groups from Firebase."""
+    result = _firebase_request("/user_groups")
+    return result if isinstance(result, dict) else {}
+
+def set_user_group(group_name, group_data):
+    """Save or update a user group in Firebase."""
+    safe_name = _safe_key(group_name)
+    return _firebase_request(f"/user_groups/{safe_name}", method="PUT", data=group_data)
+
+def delete_user_group(group_name):
+    """Delete a user group from Firebase."""
+    safe_name = _safe_key(group_name)
+    return _firebase_request(f"/user_groups/{safe_name}", method="DELETE")
+
+def get_update_history():
+    """Fetch update history list from Firebase."""
+    res = _firebase_request("/update_history")
+    if isinstance(res, dict):
+        items = []
+        for k, v in res.items():
+            if isinstance(v, dict):
+                item = dict(v)
+                item["key"] = k
+                items.append(item)
+        items.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        return items
+    return []
+
+def log_update_history(version, message, target_audience="ALL USERS", download_url="", author="ADMIN"):
+    """Append a release/broadcast entry into update_history in Firebase."""
+    record = {
+        "version": version,
+        "message": message,
+        "changelog": message,
+        "target_audience": target_audience,
+        "download_url": download_url,
+        "timestamp": int(time.time()),
+        "date_str": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "release_date": time.strftime("%Y-%m-%d"),
+        "author": author
+    }
+    key = f"release_{_safe_key(version)}_{int(time.time())}"
+    return _firebase_request(f"/update_history/{key}", method="PUT", data=record)
+
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
     def __init__(self, api_key=""):
@@ -345,12 +390,29 @@ class AntigravityBackend:
             code = "\n".join(lines).strip()
         return code
 
+    def _generate_with_fallback(self, contents, config):
+        models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-3.8-flash", "gemini-2.5-pro"]
+        last_err = None
+        for model_name in models_to_try:
+            try:
+                return self.client.models.generate_content(
+                    model=model_name, contents=contents, config=config
+                )
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                if any(x in err_str for x in ["404", "NOT_FOUND", "503", "UNAVAILABLE"]):
+                    continue
+                raise e
+        if last_err:
+            raise last_err
+
     def from_text(self, prompt, lang, format_type="competitive", mode="optimal"):
         for _ in range(max(1, len(self.raw_keys))):
             if not self.client: raise RuntimeError("NO_UPLINK")
             try:
-                r = self.client.models.generate_content(
-                    model="gemini-2.0-flash", contents=prompt,
+                r = self._generate_with_fallback(
+                    contents=prompt,
                     config={"system_instruction": self._sys(lang, format_type, mode), "temperature": 0.1})
                 return self._clean(r.text)
             except Exception as e:
@@ -364,8 +426,8 @@ class AntigravityBackend:
             p  = prompt or f"Read the coding question on screen and write the solution in {lang}."
             si = sys_inst or self._sys(lang, format_type, mode)
             try:
-                r  = self.client.models.generate_content(
-                    model="gemini-2.0-flash", contents=[p, image],
+                r = self._generate_with_fallback(
+                    contents=[p, image],
                     config={"system_instruction": si, "temperature": 0.1})
                 return self._clean(r.text)
             except Exception as e:
@@ -380,8 +442,8 @@ class AntigravityBackend:
                   "1. ALGORITHM OVERVIEW (3 simple bullet points explaining the core logic)\n"
                   "2. COMPLEXITY ANALYSIS (Time Complexity: O(?), Space Complexity: O(?))\n"
                   "3. 3 COMMON VIVA QUESTIONS WITH MODEL ANSWERS (Questions an examiner or interviewer will ask about this code)")
-        r = self.client.models.generate_content(
-            model="gemini-2.0-flash", contents=prompt,
+        r = self._generate_with_fallback(
+            contents=prompt,
             config={"system_instruction": "You are a university computer science professor preparing students for viva examinations.", "temperature": 0.2})
         return r.text.strip()
 
@@ -389,8 +451,8 @@ class AntigravityBackend:
         if not self.client: raise RuntimeError("NO_UPLINK")
         prompt = (f"Review this {lang} code:\n\n{code}\n\n"
                   "Generate 3 diverse test cases with inputs, expected outputs, and explain 2 critical edge cases (e.g. boundary values, zero, negative numbers, empty input).")
-        r = self.client.models.generate_content(
-            model="gemini-2.0-flash", contents=prompt,
+        r = self._generate_with_fallback(
+            contents=prompt,
             config={"system_instruction": "You are a competitive programming judge creating rigorous test suites.", "temperature": 0.2})
         return r.text.strip()
 
@@ -713,47 +775,125 @@ def perform_system_update(log_callback=None):
 
 
 
-# ── GEMINI API VALIDATOR & CONFIG MODAL ───────────────────────────────────────
+# ── GEMINI API VALIDATOR & DIAGNOSTIC MODAL ──────────────────────────────────
 def validate_gemini_api_key(api_key: str):
     """
-    Validate whether a Gemini API key is active and functional.
+    Validate whether a Gemini API key is active and functional using Gemini 2.5 Flash.
     Returns (is_valid: bool, status_message: str)
     """
     key = str(api_key).strip()
     if not key:
-        return False, "API key cannot be empty."
+        return False, "API key cannot be empty. Please paste your Gemini API key from Google AI Studio."
 
-    # Direct Google Generative Language REST check (fast, reliable, zero dependency)
+    if _genai:
+        try:
+            client = _genai.Client(api_key=key)
+            # Live test with modern active model
+            r = client.models.generate_content(model="gemini-2.5-flash", contents="Test uplink")
+            if r and r.text:
+                return True, "API Key is valid and active! (Connected to Gemini 2.5 Flash)"
+        except Exception as ge:
+            err_str = str(ge)
+            if "API_KEY_INVALID" in err_str or "400" in err_str:
+                return False, f"Invalid API Key (HTTP 400). Google returned:\n{err_str}"
+            elif "403" in err_str or "PERMISSION_DENIED" in err_str:
+                return False, f"Permission Denied (HTTP 403). Ensure Generative Language API is enabled in your Google Cloud Project."
+            elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                return True, "API Key is valid! (Rate limit 429 reached, quota will reset in ~60s)."
+            elif "404" in err_str or "NOT_FOUND" in err_str:
+                # Try fallback model
+                try:
+                    r2 = client.models.generate_content(model="gemini-flash-latest", contents="Test")
+                    if r2: return True, "API Key is valid! (Connected to Gemini Flash Latest)"
+                except Exception:
+                    pass
+            return False, f"Gemini Cloud Error:\n{err_str}"
+
+    # REST Fallback check
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if isinstance(data, dict) and "models" in data:
                 return True, "API Key is valid and active! (Google Gemini Connected)"
             return True, "API Key connected successfully."
     except urllib.error.HTTPError as he:
+        err_body = ""
+        try: err_body = he.read().decode("utf-8")
+        except Exception: pass
         if he.code == 400:
-            return False, "Invalid API Key (HTTP 400). Please check your key from Google AI Studio."
+            return False, f"Invalid API Key (HTTP 400).\nDetails: {err_body}"
         elif he.code == 403:
-            return False, "API Key access forbidden (HTTP 403). Ensure Generative Language API is enabled."
+            return False, f"API Key Forbidden (HTTP 403). Ensure Generative Language API is enabled in Google Cloud Console.\nDetails: {err_body}"
         elif he.code == 429:
             return True, "Key is valid! (Notice: Rate limit 429 reached, will reset shortly)."
         else:
-            return False, f"Gemini Cloud returned error HTTP {he.code}."
+            return False, f"Gemini Cloud returned HTTP {he.code}:\n{err_body}"
     except Exception as ex:
-        if _genai:
-            try:
-                client = _genai.Client(api_key=key)
-                m = list(client.models.list())
-                if m:
-                    return True, "API Key is valid! (Connected via GenAI client)"
-            except Exception as ge:
-                err_str = str(ge)
-                if "API_KEY_INVALID" in err_str or "invalid" in err_str.lower():
-                    return False, "Invalid API Key. Please verify from Google AI Studio."
-                return False, f"Verification failed: {ge}"
         return False, f"Could not reach Google Gemini Cloud: {ex}"
+
+def show_api_error_modal(parent, title, error_message, technical_details=None):
+    """
+    High-visibility error status pop-up for any API failure.
+    Presents readable error diagnosis, raw cloud response, and 1-click fixes.
+    """
+    try:
+        modal = ctk.CTkToplevel(parent)
+        modal.title(f"AGENT PRAYATH - {title}")
+        modal.geometry("640x480")
+        modal.minsize(540, 400)
+        modal.configure(fg_color=BG)
+        modal.attributes("-topmost", True)
+        modal.grab_set()
+
+        sw, sh = modal.winfo_screenwidth(), modal.winfo_screenheight()
+        modal.geometry(f"+{(sw-640)//2}+{(sh-480)//2}")
+
+        hdr = ctk.CTkFrame(modal, height=54, fg_color=SURFACE, border_width=2, border_color=DANGER)
+        hdr.pack(fill="x", padx=12, pady=10); hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text=f"⚠️ {title}", font=FH2, text_color=DANGER).pack(side="left", padx=15)
+        HackerButton(hdr, "✕", modal.destroy, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=10)
+
+        card = HackerCard(modal)
+        card.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(card, text="[!] API STATUS & DIAGNOSTIC REPORT:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=15, pady=(10, 2))
+
+        # Error Details Box
+        err_box = ctk.CTkTextbox(card, height=190, fg_color=SURFACE, text_color="#ff5555", font=FS, border_width=1, border_color=DARK_GREEN)
+        err_box.pack(fill="both", expand=True, padx=15, pady=6)
+
+        full_msg = f"ERROR SUMMARY:\n{error_message}\n\n"
+        if technical_details:
+            full_msg += f"TECHNICAL DETAILS:\n{technical_details}\n\n"
+        full_msg += (
+            "TROUBLESHOOTING STEPS:\n"
+            "1. Visit Google AI Studio to verify your Gemini API key: https://aistudio.google.com/app/apikey\n"
+            "2. Make sure Generative Language API is enabled on your Google Cloud project.\n"
+            "3. If using a newly created key, wait 30 seconds for Google's servers to replicate permissions.\n"
+            "4. Free keys reset rate limits every 60 seconds."
+        )
+        err_box.insert("end", full_msg)
+
+        # Action Buttons
+        b_row = ctk.CTkFrame(card, fg_color="transparent")
+        b_row.pack(fill="x", padx=15, pady=(8, 12))
+
+        def _copy_err():
+            modal.clipboard_clear()
+            modal.clipboard_append(full_msg)
+            modal.update()
+            btn_copy.configure(text="✔ COPIED!")
+            modal.after(2000, lambda: btn_copy.configure(text="📋 COPY ERROR"))
+
+        HackerButton(b_row, "🔑 OPEN GOOGLE AI STUDIO", lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
+                     height=36, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="left", padx=(0, 6))
+        btn_copy = HackerButton(b_row, "📋 COPY ERROR", _copy_err, height=36, color=SURFACE, text_col=NEON_GREEN, font=FS)
+        btn_copy.pack(side="left", padx=6)
+        HackerButton(b_row, "DISMISS", modal.destroy, height=36, color=SURFACE, text_col=MUTED, font=FS).pack(side="right")
+    except Exception as e:
+        messagebox.showerror(title, f"{error_message}\n\nDetails: {technical_details or e}")
 
 
 class ApiKeyConfigModal(ctk.CTkToplevel):
@@ -991,6 +1131,373 @@ class AppUpdateModal(ctk.CTkToplevel):
         except Exception:
             pass
         safe_restart_app(new_exe)
+
+
+# ── USER & TESTING GROUPS MANAGEMENT MODAL ───────────────────────────────────
+FEMALE_NAME_KEYWORDS = {
+    "DEVI", "LAKSHMI", "PRIYA", "SRI", "KUMARI", "ANITHA", "BHAVANI", "DIVYA", "MOUNIKA",
+    "POOJITHA", "SRAVANI", "TEJASWI", "VARSHINI", "SOWMYA", "SWETHA", "HARIKA", "ANUSHA",
+    "ROHINI", "JYOTHI", "SANDHYA", "RADHA", "GEETHA", "USHA", "SITA", "RAMYA", "KAVYA",
+    "SNEHA", "SINDHU", "DEEPIKA", "NAVYA", "PRAVALLIKA", "MEGHANA", "CHANDANA", "ALEKHYA",
+    "SUPRIYA", "SUPRAJA", "LALITHA", "PADMA", "SARASWATHI", "DURGA", "MAHALAKSHMI", "ANANYA",
+    "SRAVYA", "AISWARYA", "AISHWARYA", "SUSHMITHA", "SUSHMA", "SHANMITHA", "PRANATHI",
+    "PRATHYUSHA", "MANASA", "REVATHI", "GAYATRI", "YAMINI", "SIRI", "JAHNAVI", "SIRISHA",
+    "HARSHITHA", "PAVANI", "HEMA", "MADHURI", "ARCHANA", "SONIA", "APARNA", "ASHA", "AMRUTHA",
+    "POOJA", "RUCHITHA", "CHANDINI", "MONICA", "TRISHA", "SHREYA", "BINDUSREE", "BINDHU"
+}
+
+def is_female_name(name):
+    tokens = set(re.findall(r"[A-Z]+", str(name).upper()))
+    return bool(tokens & FEMALE_NAME_KEYWORDS)
+
+class UserGroupsModal(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("AGENT PRAYATH - USER & TESTING GROUPS MANAGER")
+        self.geometry("980x680")
+        self.minsize(860, 580)
+        self.configure(fg_color=BG)
+        self.grab_set()
+
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.geometry(f"+{(sw-980)//2}+{(sh-680)//2}")
+
+        self.groups = {}
+        self.selected_group_key = None
+        self.selected_members = set()  # set of roll numbers in currently edited group
+        self.cloud_db = load_cloud_db()
+        self.all_students = []
+
+        self._prep_students_list()
+        self._build_ui()
+        self._load_groups_from_cloud()
+
+    def _prep_students_list(self):
+        self.all_students = []
+        for roll, data in self.cloud_db.items():
+            if isinstance(data, dict):
+                name = str(data.get("name", "")).strip()
+                branch = str(data.get("branch", "")).strip().upper()
+                self.all_students.append((str(roll).upper(), name, branch))
+        self.all_students.sort(key=lambda x: x[0])
+
+    def _build_ui(self):
+        # Header
+        hdr = ctk.CTkFrame(self, height=54, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        hdr.pack(fill="x", padx=10, pady=10)
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="👥 USER & TESTING GROUPS MANAGER (ADMIN TARGETING)", font=FH2, text_color=NEON_GREEN).pack(side="left", padx=15)
+        HackerButton(hdr, "✕", self.destroy, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=10)
+
+        # Body split
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Left Panel: Groups List
+        left = HackerCard(body, width=280)
+        left.pack(side="left", fill="y", padx=(0, 8))
+        left.pack_propagate(False)
+
+        ctk.CTkLabel(left, text="DEPLOYMENT GROUPS", font=FH3, text_color=NEON_GREEN).pack(pady=(12, 6), padx=10, anchor="w")
+
+        tree_grp_frame = ctk.CTkFrame(left, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        tree_grp_frame.pack(fill="both", expand=True, padx=8, pady=4)
+
+        self.groups_tree = ttk.Treeview(tree_grp_frame, columns=("Group", "Count"), show="headings", style="Hacker.Treeview", height=12)
+        self.groups_tree.heading("Group", text="GROUP NAME")
+        self.groups_tree.heading("Count", text="MEMBERS")
+        self.groups_tree.column("Group", width=160)
+        self.groups_tree.column("Count", width=80, anchor="center")
+
+        g_scroll = ttk.Scrollbar(tree_grp_frame, orient="vertical", command=self.groups_tree.yview)
+        self.groups_tree.configure(yscrollcommand=g_scroll.set)
+        g_scroll.pack(side="right", fill="y")
+        self.groups_tree.pack(side="left", fill="both", expand=True)
+        self.groups_tree.bind("<<TreeviewSelect>>", self._on_group_selected)
+
+        grp_btn_row = ctk.CTkFrame(left, fg_color="transparent")
+        grp_btn_row.pack(fill="x", padx=8, pady=(8, 12))
+        HackerButton(grp_btn_row, "+ NEW GROUP", self._start_new_group, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        HackerButton(grp_btn_row, "🗑️ DELETE", self._delete_current_group, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="right", padx=(4, 0))
+
+        # Right Panel: Group Member Editor
+        right = HackerCard(body)
+        right.pack(side="right", fill="both", expand=True)
+
+        ctk.CTkLabel(right, text="GROUP CONFIGURATION & STUDENT AUDIENCE", font=FH3, text_color=NEON_GREEN).pack(pady=(12, 6), padx=12, anchor="w")
+
+        # Meta Form
+        meta_frame = ctk.CTkFrame(right, fg_color="transparent")
+        meta_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(meta_frame, text="Group Name:", font=FS, text_color=MUTED).grid(row=0, column=0, sticky="e", padx=4, pady=2)
+        self.grp_name_entry = HackerEntry(meta_frame, placeholder="e.g. Beta Testers, Testing Group 1, Girls Batch...")
+        self.grp_name_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=2)
+
+        ctk.CTkLabel(meta_frame, text="Description:", font=FS, text_color=MUTED).grid(row=0, column=2, sticky="e", padx=4, pady=2)
+        self.grp_desc_entry = HackerEntry(meta_frame, placeholder="Group purpose or release target...")
+        self.grp_desc_entry.grid(row=0, column=3, sticky="ew", padx=4, pady=2)
+
+        meta_frame.columnconfigure(1, weight=1)
+        meta_frame.columnconfigure(3, weight=1)
+
+        # Filters toolbar
+        flt_box = ctk.CTkFrame(right, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        flt_box.pack(fill="x", padx=12, pady=4)
+
+        ctk.CTkLabel(flt_box, text="Branch:", font=FS, text_color=MUTED).pack(side="left", padx=(8, 2))
+        self.branch_filter_var = ctk.StringVar(value="ALL BRANCHES")
+        self.branch_menu = ctk.CTkOptionMenu(
+            flt_box, variable=self.branch_filter_var,
+            values=["ALL BRANCHES", "DS", "CSE", "AIML", "ECE", "EEE", "ME", "CE"],
+            command=lambda v: self._refresh_student_tree(),
+            fg_color=SURFACE, text_color=NEON_GREEN, button_color=DARK_GREEN, font=FS, width=120
+        )
+        self.branch_menu.pack(side="left", padx=4, pady=6)
+
+        ctk.CTkLabel(flt_box, text="Gender/Tag:", font=FS, text_color=MUTED).pack(side="left", padx=(8, 2))
+        self.gender_filter_var = ctk.StringVar(value="ALL")
+        self.gender_menu = ctk.CTkOptionMenu(
+            flt_box, variable=self.gender_filter_var,
+            values=["ALL", "BOYS BATCH", "GIRLS BATCH"],
+            command=lambda v: self._refresh_student_tree(),
+            fg_color=SURFACE, text_color=NEON_GREEN, button_color=DARK_GREEN, font=FS, width=120
+        )
+        self.gender_menu.pack(side="left", padx=4, pady=6)
+
+        ctk.CTkLabel(flt_box, text="Search:", font=FS, text_color=MUTED).pack(side="left", padx=(8, 2))
+        self.search_var = ctk.StringVar()
+        self.search_entry = HackerEntry(flt_box, placeholder="Search Roll/Name...")
+        self.search_entry.configure(textvariable=self.search_var)
+        self.search_var.trace_add("write", lambda *a: self._refresh_student_tree())
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=6, pady=6)
+
+        # Selection Action Buttons
+        b_sel_row = ctk.CTkFrame(right, fg_color="transparent")
+        b_sel_row.pack(fill="x", padx=12, pady=(2, 4))
+        HackerButton(b_sel_row, "☑ SELECT ALL FILTERED", self._select_all_filtered, height=28, color=SURFACE, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 4))
+        HackerButton(b_sel_row, "☐ UNSELECT ALL FILTERED", self._unselect_all_filtered, height=28, color=SURFACE, text_col=MUTED, font=FS).pack(side="left", padx=4)
+        HackerButton(b_sel_row, "♀ SELECT GIRLS IN BRANCH", self._select_girls_in_branch, height=28, color=SURFACE, text_col="#ff77aa", font=FS).pack(side="left", padx=4)
+        HackerButton(b_sel_row, "♂ SELECT BOYS IN BRANCH", self._select_boys_in_branch, height=28, color=SURFACE, text_col="#66aaff", font=FS).pack(side="left", padx=4)
+
+        # Student Treeview
+        tree_st_frame = ctk.CTkFrame(right, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        tree_st_frame.pack(fill="both", expand=True, padx=12, pady=4)
+
+        cols = ("Selected", "Roll", "Name", "Branch")
+        self.students_tree = ttk.Treeview(tree_st_frame, columns=cols, show="headings", style="Hacker.Treeview", height=10)
+        self.students_tree.heading("Selected", text="IN GROUP")
+        self.students_tree.heading("Roll", text="ROLL NO")
+        self.students_tree.heading("Name", text="FULL NAME")
+        self.students_tree.heading("Branch", text="BRANCH")
+
+        self.students_tree.column("Selected", width=90, anchor="center")
+        self.students_tree.column("Roll", width=120)
+        self.students_tree.column("Name", width=260)
+        self.students_tree.column("Branch", width=90, anchor="center")
+
+        st_scroll = ttk.Scrollbar(tree_st_frame, orient="vertical", command=self.students_tree.yview)
+        self.students_tree.configure(yscrollcommand=st_scroll.set)
+        st_scroll.pack(side="right", fill="y")
+        self.students_tree.pack(side="left", fill="both", expand=True)
+        self.students_tree.bind("<Double-1>", self._toggle_student_selection)
+        self.students_tree.bind("<space>", self._toggle_student_selection)
+
+        # Bottom Bar: Stats & Save
+        bot_bar = ctk.CTkFrame(right, fg_color="transparent")
+        bot_bar.pack(fill="x", padx=12, pady=(6, 12))
+
+        self.lbl_member_stats = ctk.CTkLabel(bot_bar, text="MEMBERS SELECTED: 0 STUDENTS", font=FB, text_color=NEON_GREEN)
+        self.lbl_member_stats.pack(side="left")
+
+        self.lbl_grp_status = ctk.CTkLabel(bot_bar, text="", font=FS, text_color=MUTED)
+        self.lbl_grp_status.pack(side="left", padx=15)
+
+        HackerButton(bot_bar, "💾 SAVE GROUP TO FIREBASE", self._save_current_group, height=38, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right")
+
+    def _load_groups_from_cloud(self):
+        def _task():
+            data = get_user_groups()
+            self.groups = data
+            def _ui():
+                for item in self.groups_tree.get_children():
+                    self.groups_tree.delete(item)
+                for gname, ginfo in sorted(self.groups.items()):
+                    if isinstance(ginfo, dict):
+                        members = ginfo.get("members", [])
+                        count = len(members) if isinstance(members, list) else 0
+                        self.groups_tree.insert("", "end", iid=gname, values=(gname, f"{count} users"))
+                self._refresh_student_tree()
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _start_new_group(self):
+        self.selected_group_key = None
+        self.selected_members = set()
+        self.grp_name_entry.delete(0, "end")
+        self.grp_desc_entry.delete(0, "end")
+        self.lbl_grp_status.configure(text="[+] Enter new group details.", text_color=NEON_GREEN)
+        self._refresh_student_tree()
+
+    def _on_group_selected(self, event):
+        sel = self.groups_tree.selection()
+        if not sel: return
+        gname = sel[0]
+        if gname not in self.groups or not isinstance(self.groups[gname], dict): return
+        ginfo = self.groups[gname]
+        self.selected_group_key = gname
+        self.grp_name_entry.delete(0, "end")
+        self.grp_name_entry.insert(0, gname)
+        self.grp_desc_entry.delete(0, "end")
+        self.grp_desc_entry.insert(0, ginfo.get("description", ""))
+
+        members = ginfo.get("members", [])
+        if isinstance(members, list):
+            self.selected_members = set(str(m).upper() for m in members)
+        else:
+            self.selected_members = set()
+
+        b_flt = ginfo.get("branch_filter", "ALL BRANCHES")
+        if b_flt in ["ALL BRANCHES", "DS", "CSE", "AIML", "ECE", "EEE", "ME", "CE"]:
+            self.branch_filter_var.set(b_flt)
+
+        self._refresh_student_tree()
+        self.lbl_grp_status.configure(text=f"Loaded group '{gname}'.", text_color=NEON_GREEN)
+
+    def _refresh_student_tree(self):
+        for item in self.students_tree.get_children():
+            self.students_tree.delete(item)
+
+        branch_flt = self.branch_filter_var.get().upper()
+        gender_flt = self.gender_filter_var.get().upper()
+        query = self.search_var.get().strip().lower()
+
+        count = 0
+        for roll, name, branch in self.all_students:
+            # Branch filter
+            if branch_flt != "ALL BRANCHES":
+                if branch_flt in ("DS", "DATA SCIENCE"):
+                    if branch not in ("DS", "DATA SCIENCE"): continue
+                elif branch_flt not in branch:
+                    continue
+
+            # Gender/tag filter
+            if gender_flt == "GIRLS BATCH" and not is_female_name(name):
+                continue
+            if gender_flt == "BOYS BATCH" and is_female_name(name):
+                continue
+
+            # Search query
+            if query and (query not in roll.lower() and query not in name.lower() and query not in branch.lower()):
+                continue
+
+            is_sel = "[✓] YES" if roll in self.selected_members else "[ ] --"
+            self.students_tree.insert("", "end", iid=roll, values=(is_sel, roll, name, branch))
+            count += 1
+            if count >= 600:
+                break
+
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _toggle_student_selection(self, event=None):
+        sel = self.students_tree.selection()
+        if not sel: return
+        roll = sel[0]
+        if roll in self.selected_members:
+            self.selected_members.remove(roll)
+            self.students_tree.set(roll, "Selected", "[ ] --")
+        else:
+            self.selected_members.add(roll)
+            self.students_tree.set(roll, "Selected", "[✓] YES")
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _select_all_filtered(self):
+        for item in self.students_tree.get_children():
+            self.selected_members.add(item)
+            self.students_tree.set(item, "Selected", "[✓] YES")
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _unselect_all_filtered(self):
+        for item in self.students_tree.get_children():
+            if item in self.selected_members:
+                self.selected_members.remove(item)
+            self.students_tree.set(item, "Selected", "[ ] --")
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _select_girls_in_branch(self):
+        for item in self.students_tree.get_children():
+            vals = self.students_tree.item(item, "values")
+            name = vals[2] if len(vals) > 2 else ""
+            if is_female_name(name):
+                self.selected_members.add(item)
+                self.students_tree.set(item, "Selected", "[✓] YES")
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _select_boys_in_branch(self):
+        for item in self.students_tree.get_children():
+            vals = self.students_tree.item(item, "values")
+            name = vals[2] if len(vals) > 2 else ""
+            if not is_female_name(name):
+                self.selected_members.add(item)
+                self.students_tree.set(item, "Selected", "[✓] YES")
+        self.lbl_member_stats.configure(text=f"MEMBERS SELECTED: {len(self.selected_members)} STUDENTS")
+
+    def _save_current_group(self):
+        name = self.grp_name_entry.get().strip()
+        if not name:
+            messagebox.showwarning("MISSING NAME", "Please enter a Group Name (e.g. 'Beta Testers' or 'DS Testing Batch').")
+            return
+
+        desc = self.grp_desc_entry.get().strip() or "Custom update deployment group"
+        b_flt = self.branch_filter_var.get()
+        g_flt = self.gender_filter_var.get()
+
+        data = {
+            "name": name,
+            "description": desc,
+            "branch_filter": b_flt,
+            "gender_filter": g_flt,
+            "members": sorted(list(self.selected_members)),
+            "count": len(self.selected_members),
+            "updated_at": int(time.time()),
+            "author": self.parent.session.get("name", "ADMIN")
+        }
+
+        self.lbl_grp_status.configure(text="[*] Uploading group to Firebase Cloud...", text_color=NEON_GREEN)
+        def _task():
+            set_user_group(name, data)
+            def _ui():
+                self.groups[name] = data
+                self.selected_group_key = name
+                self.lbl_grp_status.configure(text=f"[+] Group '{name}' saved to Cloud ({len(self.selected_members)} users)!", text_color=NEON_GREEN)
+                messagebox.showinfo("GROUP SAVED", f"Group '{name}' saved successfully with {len(self.selected_members)} student members!")
+                self._load_groups_from_cloud()
+                if hasattr(self.parent, "_refresh_admin_target_options"):
+                    self.parent._refresh_admin_target_options()
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _delete_current_group(self):
+        sel = self.groups_tree.selection()
+        if not sel:
+            messagebox.showinfo("NO GROUP SELECTED", "Please select a group from the list to delete.")
+            return
+        gname = sel[0]
+        ans = messagebox.askyesno("CONFIRM DELETE", f"Are you sure you want to delete group '{gname}' from Firebase Cloud?")
+        if not ans: return
+        def _task():
+            delete_user_group(gname)
+            def _ui():
+                if gname in self.groups:
+                    del self.groups[gname]
+                self._start_new_group()
+                self._load_groups_from_cloud()
+                if hasattr(self.parent, "_refresh_admin_target_options"):
+                    self.parent._refresh_admin_target_options()
+                messagebox.showinfo("GROUP DELETED", f"Group '{gname}' deleted from Firebase Cloud.")
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
 
 
 # ── OFFLINE DSA VAULT & STUDENT EXAM REPOSITORY ──────────────────────────────
@@ -1747,9 +2254,18 @@ public class Main {
 
 # ── SCREEN SNIPPER (INTERACTIVE CROP BOX) ────────────────────────────────────
 class ScreenSnipper(ctk.CTkToplevel):
-    def __init__(self, on_snip_callback):
+    def __init__(self, on_snip_callback, on_cancel_callback=None):
         super().__init__()
         self.on_snip_callback = on_snip_callback
+        self.on_cancel_callback = on_cancel_callback
+        self._snipped = False
+
+        # Grab clean pre-overlay full screenshot for exact DPI proportional cropping
+        try:
+            self.full_screen_img = ImageGrab.grab()
+        except Exception:
+            self.full_screen_img = None
+
         self.attributes("-fullscreen", True)
         self.attributes("-alpha", 0.35)
         self.attributes("-topmost", True)
@@ -1758,10 +2274,19 @@ class ScreenSnipper(ctk.CTkToplevel):
         self.canvas = tk.Canvas(self, cursor="cross", bg="#000000", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
+        sw = max(1, self.winfo_screenwidth())
+        sh = max(1, self.winfo_screenheight())
+        self.sw = sw
+        self.sh = sh
+
         self.canvas.create_text(
-            self.winfo_screenwidth() // 2, 40,
-            text=">_ CLICK AND DRAG A BOX OVER QUESTION (ESC TO ABORT)",
+            sw // 2, 40,
+            text=">_ DRAG A BOX OVER QUESTION TO SOLVE [ESC TO CANCEL]",
             fill="#00FF41", font=("Consolas", 14, "bold")
+        )
+        self.dim_lbl = self.canvas.create_text(
+            sw // 2, 68,
+            text="", fill="#e0e0e0", font=("Consolas", 11)
         )
 
         self.start_x = None
@@ -1771,31 +2296,86 @@ class ScreenSnipper(ctk.CTkToplevel):
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self._cancel())
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _cancel(self):
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        if not self._snipped and self.on_cancel_callback:
+            self.on_cancel_callback()
 
     def _on_press(self, event):
         self.start_x = event.x
         self.start_y = event.y
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="#00FF41", width=2)
+        if self.rect:
+            try: self.canvas.delete(self.rect)
+            except Exception: pass
+        self.rect = self.canvas.create_rectangle(
+            self.start_x, self.start_y, self.start_x, self.start_y,
+            outline="#00FF41", width=2, fill="#003300"
+        )
 
     def _on_drag(self, event):
-        if self.rect:
+        if self.rect and self.start_x is not None and self.start_y is not None:
             self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
+            w = abs(event.x - self.start_x)
+            h = abs(event.y - self.start_y)
+            self.canvas.itemconfigure(self.dim_lbl, text=f"[ Selected Area: {w} × {h} px ]")
 
     def _on_release(self, event):
+        if self.start_x is None or self.start_y is None:
+            self._cancel()
+            return
+
         x1 = min(self.start_x, event.x)
         y1 = min(self.start_y, event.y)
         x2 = max(self.start_x, event.x)
         y2 = max(self.start_y, event.y)
-        self.destroy()
-        if (x2 - x1) > 25 and (y2 - y1) > 25:
-            time.sleep(0.15)
-            try:
+
+        width = x2 - x1
+        height = y2 - y1
+
+        sw = getattr(self, "sw", 1920)
+        sh = getattr(self, "sh", 1080)
+        full_img = self.full_screen_img
+
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
+        if width < 25 or height < 25:
+            if self.on_cancel_callback:
+                self.on_cancel_callback()
+            return
+
+        self._snipped = True
+
+        try:
+            if full_img:
+                pw, ph = full_img.size
+                scale_x = pw / max(1, sw)
+                scale_y = ph / max(1, sh)
+                crop_box = (
+                    int(x1 * scale_x),
+                    int(y1 * scale_y),
+                    int(x2 * scale_x),
+                    int(y2 * scale_y)
+                )
+                snip_img = full_img.crop(crop_box)
+            else:
+                time.sleep(0.1)
                 snip_img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
-                if self.on_snip_callback:
-                    self.on_snip_callback(snip_img)
-            except Exception as e:
-                print(f"[Snip Grab Error]: {e}")
+
+            if self.on_snip_callback:
+                self.on_snip_callback(snip_img)
+        except Exception as e:
+            print(f"[Snip Grab Error]: {e}")
+            if self.on_cancel_callback:
+                self.on_cancel_callback()
 
 # ── GHOST HUD (STEALTH FLOATING WIDGET) ───────────────────────────────────────
 class GhostHUD(ctk.CTkToplevel):
@@ -1855,10 +2435,14 @@ class GhostHUD(ctk.CTkToplevel):
 
     def _on_snip(self):
         self.withdraw()
+        time.sleep(0.12)
         def _cb(img):
             self.deiconify()
-            self.app._process_cropped_snip(img)
-        ScreenSnipper(_cb)
+            if img and self.app:
+                self.app._process_cropped_snip(img)
+        def _cancel():
+            self.deiconify()
+        ScreenSnipper(_cb, on_cancel_callback=_cancel)
 
     def _on_type(self):
         self.withdraw()
@@ -2001,6 +2585,7 @@ class OnboardingWizard(ctk.CTk):
         HackerButton(self.content, "[2] STUDENT LOGIN", self._render_step_student_login, height=45).pack(fill="x", padx=40, pady=8)
         HackerButton(self.content, "[3] CREATE NEW STUDENT ACCOUNT", self._render_step_student_register, height=45).pack(fill="x", padx=40, pady=8)
         HackerButton(self.content, "[4] AUS LOGIN WITH TEMP ROLL NUMBER", self._render_step_temp_roll_login, height=45).pack(fill="x", padx=40, pady=8)
+        HackerButton(self.content, "🔄 CHECK FOR UPDATES & SYNC CLOUD", self._open_update_modal, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", padx=40, pady=(16,8))
 
     def _render_step_admin(self):
         self._clear()
@@ -2571,6 +3156,7 @@ class OnboardingWizard(ctk.CTk):
         k = self.api_e.get().strip()
         if not k:
             self.api_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
+            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your Gemini API key before testing.")
             return
         self.btn_test_api.configure(state="disabled")
         self.api_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
@@ -2581,8 +3167,10 @@ class OnboardingWizard(ctk.CTk):
                     self.btn_test_api.configure(state="normal")
                     if ok:
                         self.api_status_lbl.configure(text=f"🟢 {msg}", text_color=NEON_GREEN)
+                        messagebox.showinfo("API CONNECTED", f"SUCCESS!\n\n{msg}")
                     else:
                         self.api_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                        show_api_error_modal(self, "API KEY VERIFICATION FAILED", msg)
                 except Exception:
                     pass
             try:
@@ -2610,6 +3198,7 @@ class OnboardingWizard(ctk.CTk):
                         self.user_data["startup_mode"] = "AI_MODULE"
                         self._finish()
                     else:
+                        show_api_error_modal(self, "API KEY VERIFICATION FAILED", msg)
                         ans = messagebox.askyesno("API KEY WARNING", f"Google Gemini returned:\n{msg}\n\nWould you like to save this key anyway and continue?")
                         if ans:
                             self.user_data["api_key"] = k
@@ -2703,16 +3292,47 @@ class AutoCoderApp(ctk.CTk):
         except Exception:
             pass
 
+    def _open_user_groups_modal(self):
+        UserGroupsModal(self)
+
+    def _refresh_admin_target_options(self):
+        base_options = [
+            "ALL USERS (Entire Campus)",
+            "BRANCH: DATA SCIENCE (DS)",
+            "BRANCH: COMPUTER SCIENCE (CSE)",
+            "BRANCH: ARTIFICIAL INTELLIGENCE (AIML)",
+            "BRANCH: ELECTRONICS (ECE)",
+            "BRANCH: ELECTRICAL (EEE)",
+            "BRANCH: MECHANICAL (ME)",
+            "BRANCH: CIVIL (CE)"
+        ]
+        def _task():
+            try:
+                groups = get_user_groups()
+                group_opts = [f"GROUP: {gname}" for gname in sorted(groups.keys()) if isinstance(groups[gname], dict)]
+                full_opts = base_options + group_opts
+                def _ui():
+                    if hasattr(self, "admin_target_menu"):
+                        self.admin_target_menu.configure(values=full_opts)
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
+
     def _admin_broadcast_update(self):
         v = self.admin_upd_v_entry.get().strip() or APP_VERSION
         msg = self.admin_upd_msg_entry.get().strip() or "New system update available."
         url = getattr(self, "admin_upd_url_entry", None)
         url_val = url.get().strip() if url else ""
         show_pop = self.admin_upd_popup_var.get()
+        target_aud = getattr(self, "admin_target_audience_var", None)
+        target_audience = target_aud.get() if target_aud else "ALL USERS (Entire Campus)"
+
         payload = {
             "version": v,
             "message": msg,
             "download_url": url_val,
+            "target_audience": target_audience,
             "timestamp": time.time(),
             "show_popup": show_pop,
             "author": self.session.get("name", "ROOT_ADMIN")
@@ -2722,12 +3342,23 @@ class AutoCoderApp(ctk.CTk):
         _firebase_request("/system_config/changelog", method="PUT", data=msg)
         if url_val:
             _firebase_request("/system_config/download_url", method="PUT", data=url_val)
+
+        # Log release to update history in Firebase
+        log_update_history(v, msg, target_audience=target_audience, download_url=url_val, author=self.session.get("name", "ROOT_ADMIN"))
+
         if hasattr(self, "admin_broadcast_status"):
             self.admin_broadcast_status.configure(
-                text=f"[+] BROADCAST ACTIVE: Pushed {v} to all online student dashboards!",
+                text=f"[+] BROADCAST ACTIVE: Pushed {v} to audience: '{target_audience}'!",
                 text_color=NEON_GREEN
             )
-        messagebox.showinfo("BROADCAST SENT", f"Update notification for {v} has been broadcast to all student dashboards!\n\nMessage: {msg}\nDirect Download URL: {url_val or 'Default GitHub'}")
+        messagebox.showinfo(
+            "BROADCAST SENT",
+            f"Update notification for {v} broadcasted successfully!\n\n"
+            f"Target Audience: {target_audience}\n"
+            f"Message: {msg}\n"
+            f"Direct Download URL: {url_val or 'Default GitHub'}\n"
+            f"Logged to Release History."
+        )
 
     def _admin_clear_broadcast(self):
         _firebase_request("/system_broadcast", method="DELETE")
@@ -2746,6 +3377,7 @@ class AutoCoderApp(ctk.CTk):
                     v = bc.get("version", "")
                     msg = bc.get("message", "")
                     url = bc.get("download_url", "")
+                    target_aud = bc.get("target_audience", "ALL USERS (Entire Campus)")
                     def _ui():
                         if hasattr(self, "admin_upd_v_entry") and v:
                             self.admin_upd_v_entry.delete(0, "end"); self.admin_upd_v_entry.insert(0, v)
@@ -2753,12 +3385,60 @@ class AutoCoderApp(ctk.CTk):
                             self.admin_upd_msg_entry.delete(0, "end"); self.admin_upd_msg_entry.insert(0, msg)
                         if hasattr(self, "admin_upd_url_entry") and url:
                             self.admin_upd_url_entry.delete(0, "end"); self.admin_upd_url_entry.insert(0, url)
+                        if hasattr(self, "admin_target_audience_var") and target_aud:
+                            self.admin_target_audience_var.set(target_aud)
                         if hasattr(self, "admin_broadcast_status"):
-                            self.admin_broadcast_status.configure(text=f"[+] Active Broadcast: {v} ('{msg[:35]}...')", text_color=NEON_GREEN)
+                            self.admin_broadcast_status.configure(text=f"[+] Active Broadcast: {v} ({target_aud}) - '{msg[:25]}...'", text_color=NEON_GREEN)
                     self.after(0, _ui)
             except Exception:
                 pass
         threading.Thread(target=_task, daemon=True).start()
+
+    def _is_user_eligible_for_broadcast(self, target_audience):
+        """Verify whether current user is within the target audience for update notification."""
+        # Admin always sees all updates
+        if self.session.get("role") == "admin":
+            return True
+        if not target_audience or "ALL" in str(target_audience).upper():
+            return True
+
+        user_branch = str(self.session.get("branch", "")).strip().upper()
+        user_roll = str(self.session.get("roll", "")).strip().upper()
+
+        if str(target_audience).startswith("BRANCH:"):
+            # e.g. "BRANCH: DATA SCIENCE (DS)"
+            b_target = target_audience.split("BRANCH:")[-1].strip().upper()
+            if "(" in b_target and ")" in b_target:
+                b_code = b_target[b_target.find("(")+1:b_target.find(")")].strip()
+            else:
+                b_code = b_target.strip()
+            if b_code == user_branch:
+                return True
+            if b_code in ("DS", "DATA SCIENCE") and user_branch in ("DS", "DATA SCIENCE"):
+                return True
+            if b_code in user_branch or user_branch in b_code:
+                return True
+            return False
+
+        if str(target_audience).startswith("GROUP:"):
+            grp_name = target_audience.split("GROUP:")[-1].strip()
+            try:
+                grp_data = _firebase_request(f"/user_groups/{_safe_key(grp_name)}")
+                if isinstance(grp_data, dict):
+                    members = grp_data.get("members", [])
+                    if isinstance(members, list) and user_roll in [str(m).strip().upper() for m in members]:
+                        return True
+                    b_flt = grp_data.get("branch_filter", "ALL BRANCHES").strip().upper()
+                    if b_flt != "ALL BRANCHES":
+                        if b_flt in ("DS", "DATA SCIENCE") and user_branch in ("DS", "DATA SCIENCE"):
+                            return True
+                        if b_flt in user_branch or user_branch in b_flt:
+                            return True
+            except Exception:
+                pass
+            return False
+
+        return True
 
     def _check_and_display_broadcast(self):
         try:
@@ -2766,17 +3446,27 @@ class AutoCoderApp(ctk.CTk):
             if isinstance(bc, dict) and bc.get("version"):
                 v = bc.get("version", "")
                 msg = bc.get("message", "New update available!")
+                target_aud = bc.get("target_audience", "ALL USERS")
+
+                # Check eligibility
+                if not self._is_user_eligible_for_broadcast(target_aud):
+                    def _hide_ineligible():
+                        if hasattr(self, "broadcast_banner"):
+                            self.broadcast_banner.pack_forget()
+                    self.after(0, _hide_ineligible)
+                    return
+
                 self._active_broadcast_v = v
                 if is_version_newer(v, APP_VERSION):
                     def _show_ui():
-                        self.broadcast_msg_lbl.configure(text=f"📢 NOTIFICATION: {v} AVAILABLE — {msg}")
+                        self.broadcast_msg_lbl.configure(text=f"📢 UPDATE FOR [{target_aud}]: {v} READY — {msg}")
                         if hasattr(self, "tab_container"):
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0), before=self.tab_container)
                         else:
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0))
                         if bc.get("show_popup") and getattr(self, "_popup_shown_for", None) != v:
                             self._popup_shown_for = v
-                            ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nChangelog:\n{msg}\n\nWould you like to install the update now?")
+                            ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nTarget Audience: {target_aud}\nChangelog:\n{msg}\n\nWould you like to install the update now?")
                             if ans:
                                 self._check_update_and_refresh_ui()
                     self.after(0, _show_ui)
@@ -2990,6 +3680,7 @@ class AutoCoderApp(ctk.CTk):
         k = self.ai_quick_api_entry.get().strip() if hasattr(self, "ai_quick_api_entry") else ""
         if not k:
             self.ai_quick_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
+            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your Gemini API key before testing.")
             return
         self.ai_quick_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
         def _task():
@@ -2998,8 +3689,10 @@ class AutoCoderApp(ctk.CTk):
                 try:
                     if ok:
                         self.ai_quick_status_lbl.configure(text=f"🟢 {msg}", text_color=NEON_GREEN)
+                        messagebox.showinfo("API CONNECTED", f"SUCCESS!\n\n{msg}")
                     else:
                         self.ai_quick_status_lbl.configure(text=f"🔴 {msg}", text_color=DANGER)
+                        show_api_error_modal(self, "AI QUICK CONNECT TEST FAILED", msg)
                 except Exception:
                     pass
             try:
@@ -3028,6 +3721,7 @@ class AutoCoderApp(ctk.CTk):
                         self.update_status("[+] AI UPLINK CONNECTED & ACTIVE!")
                         messagebox.showinfo("AI ACTIVATED", "Gemini API connected successfully! AI Mode is now active.")
                     else:
+                        show_api_error_modal(self, "AI QUICK CONNECT VERIFICATION FAILED", msg)
                         ans = messagebox.askyesno("API KEY WARNING", f"Google Gemini verification returned:\n{msg}\n\nWould you like to activate anyway?")
                         if ans:
                             self.session["api_key"] = k
@@ -3456,6 +4150,26 @@ class AutoCoderApp(ctk.CTk):
         self.admin_upd_msg_entry = HackerEntry(b_grid, placeholder="What's new in this release (e.g. Fixed DSA Vault, added Exam Predictor)...")
         self.admin_upd_msg_entry.grid(row=1, column=1, columnspan=3, padx=4, pady=2, sticky="ew")
 
+        ctk.CTkLabel(b_grid, text="Target Audience:", font=FS, text_color=NEON_GREEN).grid(row=2, column=0, padx=4, pady=2, sticky="e")
+        self.admin_target_audience_var = ctk.StringVar(value="ALL USERS (Entire Campus)")
+        self.admin_target_menu = ctk.CTkOptionMenu(
+            b_grid, variable=self.admin_target_audience_var,
+            values=[
+                "ALL USERS (Entire Campus)",
+                "BRANCH: DATA SCIENCE (DS)",
+                "BRANCH: COMPUTER SCIENCE (CSE)",
+                "BRANCH: ARTIFICIAL INTELLIGENCE (AIML)",
+                "BRANCH: ELECTRONICS (ECE)",
+                "BRANCH: ELECTRICAL (EEE)",
+                "BRANCH: MECHANICAL (ME)",
+                "BRANCH: CIVIL (CE)"
+            ],
+            fg_color=SURFACE, text_color=NEON_GREEN, button_color=DARK_GREEN, font=FS
+        )
+        self.admin_target_menu.grid(row=2, column=1, padx=4, pady=2, sticky="ew")
+
+        HackerButton(b_grid, "👥 CREATE / MANAGE GROUPS", self._open_user_groups_modal, height=32, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).grid(row=2, column=2, columnspan=2, padx=4, pady=2, sticky="ew")
+
         b_grid.columnconfigure(1, weight=1)
         b_grid.columnconfigure(3, weight=2)
 
@@ -3469,12 +4183,14 @@ class AutoCoderApp(ctk.CTk):
         b_act = ctk.CTkFrame(b_card, fg_color="transparent")
         b_act.pack(fill="x", padx=15, pady=(4, 8))
 
-        HackerButton(b_act, "📢 BROADCAST UPDATE TO ALL USERS", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
-        HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left")
+        HackerButton(b_act, "📢 BROADCAST UPDATE TO AUDIENCE", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
+        HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
+        HackerButton(b_act, "📜 VIEW RELEASE HISTORY", lambda: self.show_frame("UPDATE_CENTER"), height=34, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left")
 
         self.admin_broadcast_status = ctk.CTkLabel(b_act, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=MUTED, anchor="w")
         self.admin_broadcast_status.pack(side="left", padx=15, fill="x", expand=True)
 
+        self.after(500, self._refresh_admin_target_options)
         self.after(800, self._load_current_broadcast_info)
 
     def _admin_sync_cloud(self):
@@ -3861,20 +4577,73 @@ class AutoCoderApp(ctk.CTk):
         self.tab_update_prog.pack(fill="x", padx=20, pady=(5,10))
 
         # Update Console Logs
-        self.tab_update_log = ctk.CTkTextbox(p, height=180, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=1, border_color=DARK_GREEN)
-        self.tab_update_log.pack(fill="both", expand=True, padx=20, pady=(0,10))
+        self.tab_update_log = ctk.CTkTextbox(p, height=110, fg_color=SURFACE, text_color=NEON_GREEN, font=FM, border_width=1, border_color=DARK_GREEN)
+        self.tab_update_log.pack(fill="x", padx=20, pady=(0,10))
         self.tab_update_log.insert("end", "[*] System Ready. Click '⚡ UPDATE TO NEW VERSION' to fetch latest release packages.\n")
 
         # Action Buttons
         btn_bar = ctk.CTkFrame(p, fg_color="transparent")
-        btn_bar.pack(fill="x", padx=20, pady=(0,15))
+        btn_bar.pack(fill="x", padx=20, pady=(0,10))
 
-        self.btn_tab_update = HackerButton(btn_bar, "⚡ UPDATE TO NEW VERSION", self._trigger_tab_update, height=48)
+        self.btn_tab_update = HackerButton(btn_bar, "⚡ UPDATE TO NEW VERSION", self._trigger_tab_update, height=44)
         self.btn_tab_update.pack(side="right", padx=(10,0))
 
-        HackerButton(btn_bar, "⟳ CHECK FOR UPDATES", self._refresh_update_telemetry, color=SURFACE, text_col=NEON_GREEN, height=48).pack(side="right")
+        HackerButton(btn_bar, "⟳ CHECK FOR UPDATES", self._refresh_update_telemetry, color=SURFACE, text_col=NEON_GREEN, height=44).pack(side="right")
+
+        # Update & Release History Card
+        hcard = HackerCard(p)
+        hcard.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+
+        h_hdr = ctk.CTkFrame(hcard, fg_color="transparent")
+        h_hdr.pack(fill="x", padx=15, pady=(8, 4))
+        ctk.CTkLabel(h_hdr, text="📜 SYSTEM UPDATE & RELEASE HISTORY (AUDIENCE TARGETED)", font=FH3, text_color=NEON_GREEN).pack(side="left")
+        HackerButton(h_hdr, "⟳ REFRESH HISTORY", self._refresh_update_history_table, height=26, color=SURFACE, text_col=NEON_GREEN, font=FS).pack(side="right")
+
+        tree_h_frame = ctk.CTkFrame(hcard, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        tree_h_frame.pack(fill="both", expand=True, padx=15, pady=(4, 10))
+
+        cols = ("Version", "Audience", "Date", "Changelog", "Author")
+        self.history_tree = ttk.Treeview(tree_h_frame, columns=cols, show="headings", style="Hacker.Treeview", height=5)
+        self.history_tree.heading("Version", text="VERSION")
+        self.history_tree.heading("Audience", text="TARGET AUDIENCE")
+        self.history_tree.heading("Date", text="DATE")
+        self.history_tree.heading("Changelog", text="CHANGELOG / HIGHLIGHTS")
+        self.history_tree.heading("Author", text="AUTHOR")
+
+        self.history_tree.column("Version", width=80, anchor="center")
+        self.history_tree.column("Audience", width=170)
+        self.history_tree.column("Date", width=130, anchor="center")
+        self.history_tree.column("Changelog", width=340)
+        self.history_tree.column("Author", width=90, anchor="center")
+
+        h_scroll = ttk.Scrollbar(tree_h_frame, orient="vertical", command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=h_scroll.set)
+        h_scroll.pack(side="right", fill="y")
+        self.history_tree.pack(side="left", fill="both", expand=True)
 
         self.after(500, self._refresh_update_telemetry)
+        self.after(700, self._refresh_update_history_table)
+
+    def _refresh_update_history_table(self):
+        def _task():
+            history = get_update_history()
+            def _ui():
+                if not hasattr(self, "history_tree"): return
+                for itm in self.history_tree.get_children():
+                    self.history_tree.delete(itm)
+                if not history:
+                    self.history_tree.insert("", "end", values=("v3.1", "ALL USERS", time.strftime("%Y-%m-%d"), "Testing beta 1 update - DPI Screen Snipper, Targeted Groups", "ROOT_ADMIN"))
+                else:
+                    for h in history:
+                        self.history_tree.insert("", "end", values=(
+                            h.get("version", "v3.1"),
+                            h.get("target_audience", "ALL USERS"),
+                            h.get("date_str") or h.get("release_date") or time.strftime("%Y-%m-%d"),
+                            h.get("changelog") or h.get("message") or "System updates",
+                            h.get("author", "ADMIN")
+                        ))
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
 
     def _refresh_update_telemetry(self):
         def _task():
@@ -4147,27 +4916,48 @@ class AutoCoderApp(ctk.CTk):
 
     def _start_interactive_snip(self):
         self.withdraw()
+        self.update_idletasks()
+        time.sleep(0.12)
         def _cb(cropped_img):
             self.deiconify()
-            self._process_cropped_snip(cropped_img)
-        ScreenSnipper(_cb)
+            self.lift()
+            self.focus_force()
+            if cropped_img:
+                self._process_cropped_snip(cropped_img)
+            else:
+                self.update_status("[-] Crop screen canceled (no area selected).")
+        def _cancel():
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.update_status("[-] Crop screen canceled.")
+        ScreenSnipper(_cb, on_cancel_callback=_cancel)
 
     def _process_cropped_snip(self, cropped_img):
         def _task():
             self.is_typing = True; self.stop_typing = False; self._disable_buttons()
             try:
                 self.update_status("[*] TRANSMITTING CROPPED QUESTION TO AI CORE...")
+                if not self.session.get("api_key"):
+                    raise RuntimeError("NO_UPLINK")
                 lang = self.lang_var.get()
                 fmt = self.format_var.get()
                 sol_m = self.sol_type_var.get()
                 code = self.backend.from_image(cropped_img, lang, format_type=fmt, mode=sol_m)
                 self.last_generated_code = code
                 self.last_generated_lang = lang
-                self.preview_box.delete("1.0", "end")
-                self.preview_box.insert("end", code)
+                def _ui():
+                    self.preview_box.delete("1.0", "end")
+                    self.preview_box.insert("end", code)
+                    self.update_status(f"[+] AI SOLUTION READY ({lang.upper()})")
+                self.after(0, _ui)
                 self._execute_code_injection(code, lang, enable_autonomous=True)
             except Exception as ex:
-                self.update_status(f"[!] UPLINK ERROR: {ex}")
+                err_msg = str(ex)
+                if "NO_UPLINK" in err_msg:
+                    err_msg = "No Gemini API key is configured or active.\n\nPlease enter your Gemini API key in Profile & Security or click 'CONNECT & ACTIVATE AI MODE' in the AI Module to get code solutions."
+                self.update_status(f"[!] AI UPLINK ERROR: {err_msg[:35]}...")
+                self.after(0, lambda e=err_msg: show_api_error_modal(self, "AI SCREEN SNIP ERROR", e))
             finally:
                 self.is_typing = False; self.stop_typing = False; self._enable_buttons()
                 self.after(0, self.deiconify)
@@ -4190,7 +4980,9 @@ class AutoCoderApp(ctk.CTk):
                     self.viva_box.insert("end", notes)
                 self.after(0, _ui)
             except Exception as e:
-                self.after(0, lambda: self.viva_box.insert("end", f"\n[!] Viva Error: {e}"))
+                err_msg = str(e)
+                self.after(0, lambda: self.viva_box.insert("end", f"\n[!] Viva Error: {err_msg}"))
+                self.after(0, lambda e=err_msg: show_api_error_modal(self, "VIVA GENERATION ERROR", e))
         threading.Thread(target=_task, daemon=True).start()
 
     def _predict_test_cases_for_current(self):
@@ -4210,7 +5002,9 @@ class AutoCoderApp(ctk.CTk):
                     self.test_cases_box.insert("end", cases)
                 self.after(0, _ui)
             except Exception as e:
-                self.after(0, lambda: self.test_cases_box.insert("end", f"\n[!] Test Suite Error: {e}"))
+                err_msg = str(e)
+                self.after(0, lambda: self.test_cases_box.insert("end", f"\n[!] Test Suite Error: {err_msg}"))
+                self.after(0, lambda e=err_msg: show_api_error_modal(self, "TEST CASES GENERATION ERROR", e))
         threading.Thread(target=_task, daemon=True).start()
 
     def start_direct_typing_payload(self, code):
@@ -4232,7 +5026,9 @@ class AutoCoderApp(ctk.CTk):
             self.preview_box.delete("1.0","end"); self.preview_box.insert("end",code)
             self._execute_code_injection(code, lang, enable_autonomous=True)
         except Exception as ex:
-            self.update_status(f"[!] ERROR: {ex}")
+            err_msg = str(ex)
+            self.update_status(f"[!] AI ERROR: {err_msg[:35]}...")
+            self.after(0, lambda e=err_msg: show_api_error_modal(self, "FULLSCREEN VISION ERROR", e))
             with open("error_log.txt", "w") as f:
                 import traceback; f.write(traceback.format_exc())
         finally:
@@ -4248,7 +5044,9 @@ class AutoCoderApp(ctk.CTk):
             self.preview_box.delete("1.0","end"); self.preview_box.insert("end",code)
             self._execute_code_injection(code, lang, enable_autonomous=True)
         except Exception as ex:
-            self.update_status(f"[!] ERROR: {ex}")
+            err_msg = str(ex)
+            self.update_status(f"[!] AI ERROR: {err_msg[:35]}...")
+            self.after(0, lambda e=err_msg: show_api_error_modal(self, "AI TEXT GENERATION ERROR", e))
             with open("error_log.txt", "w") as f:
                 import traceback; f.write(traceback.format_exc())
         finally:
