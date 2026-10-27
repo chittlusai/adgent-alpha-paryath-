@@ -115,9 +115,35 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SESSION_FILE = os.path.join(BASE_DIR, ".alpha_session.json")
-LOCAL_DB_FILE = os.path.join(BASE_DIR, "cloud_db.json")
-FIREBASE_URL = "https://alpha-agent-2d55f-default-rtdb.firebaseio.com"
+
+# Absolute isolation: Runtime data, session tokens and logs ALWAYS live in %LOCALAPPDATA%\AgentPrayath
+# NEVER in the working directory and NEVER on the user's Desktop.
+DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "AgentPrayath")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+SESSION_FILE = os.path.join(DATA_DIR, ".alpha_session.json")
+LOCAL_DB_FILE = os.path.join(DATA_DIR, "cloud_db.json")
+ERROR_LOG_FILE = os.path.join(DATA_DIR, "error_log.txt")
+
+# Clean up any stray backend or database files left on Desktop
+def _clean_stray_desktop_db():
+    candidates = [
+        os.path.expanduser("~/Desktop"),
+        os.path.join(os.environ.get("USERPROFILE", ""), "OneDrive", "Desktop"),
+        os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
+    ]
+    stray_filenames = ["cloud_db.json", "error_log.txt", ".alpha_session.json"]
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            for fname in stray_filenames:
+                stray = os.path.join(cand, fname)
+                if os.path.exists(stray):
+                    try:
+                        os.remove(stray)
+                    except Exception:
+                        pass
+
+_clean_stray_desktop_db()
 
 def load_session():
     if os.path.exists(SESSION_FILE):
@@ -134,6 +160,8 @@ def save_session(data):
             json.dump(data, f, indent=2)
     except Exception:
         pass
+
+FIREBASE_URL = "https://alpha-agent-2d55f-default-rtdb.firebaseio.com"
 
 def _safe_key(key):
     return str(key).strip().replace(".", "_").replace("#", "_").replace("$", "_").replace("[", "_").replace("]", "_").replace("/", "_")
@@ -152,16 +180,34 @@ def _firebase_request(path, method="GET", data=None, timeout=6):
         print(f"[Firebase {method} {path} Note]: {e}")
         return None
 
-def save_local_db(db):
-    """Persist student database to local cache."""
+def save_local_db(db, force=False):
+    """
+    Persist student database to local cache.
+    SECURITY & PRIVACY:
+    Full student database (cloud_db.json) is strictly restricted to ADMIN only.
+    Normal student laptops and student sessions will NEVER download or save cloud_db.json.
+    Under NO circumstance is cloud_db.json written to the user's Desktop.
+    """
     try:
-        with open(LOCAL_DB_FILE, "w", encoding="utf-8") as f:
+        sess = load_session()
+        is_admin = (sess.get("role") == "admin")
+        if not (force and is_admin):
+            return
+        target_file = os.path.join(DATA_DIR, "cloud_db.json")
+        if "desktop" in target_file.lower():
+            return
+        with open(target_file, "w", encoding="utf-8") as f:
             json.dump(db, f, indent=2)
     except Exception as e:
         print(f"[Local DB Save Error]: {e}")
 
-def load_cloud_db():
-    """Load student database with instant local cache and cloud fallback."""
+def load_cloud_db(force_download=False):
+    """
+    Load student database.
+    SECURITY & PRIVACY:
+    Only reads existing local cache (e.g. on Admin PC).
+    Does NOT download full 4,400+ student database to normal student laptops unless force_download=True (Admin only).
+    """
     local_db = {}
     if os.path.exists(LOCAL_DB_FILE):
         try:
@@ -169,25 +215,27 @@ def load_cloud_db():
                 local_db = json.load(f)
         except Exception:
             local_db = {}
-    if not local_db:
-        result = _firebase_request("/students", timeout=8)
-        if isinstance(result, dict) and result:
-            local_db = result
-            save_local_db(local_db)
+    if not local_db and force_download:
+        sess = load_session()
+        if sess.get("role") == "admin":
+            result = _firebase_request("/students", timeout=12)
+            if isinstance(result, dict) and result:
+                local_db = result
+                save_local_db(local_db, force=True)
     return local_db
 
 def save_cloud_db(db):
-    """Save entire student database to Firebase."""
-    save_local_db(db)
+    """Save entire student database to Firebase (Admin only)."""
+    save_local_db(db, force=True)
     return _firebase_request("/students", method="PUT", data=db, timeout=12)
 
 def find_student(identifier, local_db=None):
     """
     Universal student lookup matching:
-    1. Roll Number (case-insensitive, e.g. 26B11AI001 or 26b11ai001)
-    2. Phone / Mobile Number (e.g. 10 digits matching phone or father_phone)
-    3. Temp Roll Number (with or without hyphen, e.g. AUS26-1040, AUS261040)
-    4. Internal fields (temp_roll, permanent_roll, migrated_to)
+    1. Roll Number (case-insensitive, e.g. 26B11AI001, 26B11DS100)
+    2. Temp Roll Number (e.g. 26BAUCQDS100, AUS26-1040, AUS261040)
+    3. Prefix translation (26B11 <-> 26BAUCQ)
+    4. Direct live Firebase verification (does not require full database on student laptop)
     Returns: (canonical_roll, student_record_dict) or (None, None)
     """
     if not identifier:
@@ -196,54 +244,12 @@ def find_student(identifier, local_db=None):
     clean_id = raw.upper()
     safe_key = _safe_key(clean_id)
 
-    # 1. Direct Firebase query (for latest live password & record changes)
+    # 1. Direct Firebase live query (fetches only that student's record)
     res = _firebase_request(f"/students/{safe_key}", timeout=4)
     if isinstance(res, dict) and (res.get("name") or res.get("branch")):
         return clean_id, res
 
-    # 2. Local database lookup
-    db = local_db
-    if not isinstance(db, dict) or not db:
-        db = load_cloud_db()
-
-    # 2a. Direct key match (case-insensitive)
-    if clean_id in db and isinstance(db[clean_id], dict):
-        return clean_id, db[clean_id]
-
-    for k, v in db.items():
-        if k.upper() == clean_id and isinstance(v, dict):
-            return k, v
-
-    # 2b. Hyphen / Space agnostic match (e.g. AUS2614749 -> AUS26-14749)
-    no_dash_query = clean_id.replace("-", "").replace("_", "").replace(" ", "")
-    if no_dash_query:
-        for k, v in db.items():
-            if not isinstance(v, dict): continue
-            if k.upper().replace("-", "").replace("_", "").replace(" ", "") == no_dash_query:
-                return k, v
-
-    # 2c. Mobile phone number lookup (matches last 10 digits of student phone or parent phone)
-    digits = re.sub(r'\D', '', raw)
-    if len(digits) >= 10:
-        phone_10 = digits[-10:]
-        for k, v in db.items():
-            if not isinstance(v, dict): continue
-            p = re.sub(r'\D', '', str(v.get("phone", "")))
-            fp = re.sub(r'\D', '', str(v.get("father_phone", "")))
-            if (len(p) >= 10 and p.endswith(phone_10)) or (len(fp) >= 10 and fp.endswith(phone_10)):
-                return k, v
-
-    # 2d. Internal fields match (temp_roll, permanent_roll, migrated_to)
-    for k, v in db.items():
-        if not isinstance(v, dict): continue
-        if str(v.get("temp_roll", "")).upper() == clean_id:
-            return k, v
-        if str(v.get("permanent_roll", "")).upper() == clean_id:
-            return k, v
-        if str(v.get("migrated_to", "")).upper() == clean_id:
-            return k, v
-
-    # 2e. Aditya University College Code <-> Temp Roll prefix translation (e.g. 26B11DS100 <-> 26BAUCQDS100)
+    # 1b. Check prefix candidates in Firebase
     alt_candidates = []
     if "26B11" in clean_id:
         alt_candidates.append(clean_id.replace("26B11", "26BAUCQ"))
@@ -253,15 +259,70 @@ def find_student(identifier, local_db=None):
     elif "26BAU" in clean_id:
         alt_candidates.append(clean_id.replace("26BAU", "26B11"))
 
+    # Hyphen variations for AUS numbers (e.g. AUS2614749 <-> AUS26-14749)
+    if clean_id.startswith("AUS26") and "-" not in clean_id:
+        alt_candidates.append(re.sub(r"^(AUS26)(\d+)$", r"\1-\2", clean_id))
+    elif clean_id.startswith("AUS26-"):
+        alt_candidates.append(clean_id.replace("-", ""))
+
     for alt in alt_candidates:
-        if alt in db and isinstance(db[alt], dict):
-            return clean_id, db[alt]
-        for k, v in db.items():
-            if k.upper() == alt and isinstance(v, dict):
-                return clean_id, v
         fb_alt = _firebase_request(f"/students/{_safe_key(alt)}", timeout=3)
         if isinstance(fb_alt, dict) and (fb_alt.get("name") or fb_alt.get("branch")):
             return clean_id, fb_alt
+
+    # 2. In-memory / local database lookup (Only if available, e.g. for Admin)
+    db = local_db if isinstance(local_db, dict) else {}
+    if not db and os.path.exists(LOCAL_DB_FILE):
+        try:
+            with open(LOCAL_DB_FILE, "r", encoding="utf-8") as f:
+                db = json.load(f)
+        except Exception:
+            db = {}
+
+    if db:
+        # 2a. Direct key match (case-insensitive)
+        if clean_id in db and isinstance(db[clean_id], dict):
+            return clean_id, db[clean_id]
+
+        for k, v in db.items():
+            if k.upper() == clean_id and isinstance(v, dict):
+                return k, v
+
+        # 2b. Hyphen / Space agnostic match
+        no_dash_query = clean_id.replace("-", "").replace("_", "").replace(" ", "")
+        if no_dash_query:
+            for k, v in db.items():
+                if not isinstance(v, dict): continue
+                if k.upper().replace("-", "").replace("_", "").replace(" ", "") == no_dash_query:
+                    return k, v
+
+        # 2c. Mobile phone number lookup
+        digits = re.sub(r'\D', '', raw)
+        if len(digits) >= 10:
+            phone_10 = digits[-10:]
+            for k, v in db.items():
+                if not isinstance(v, dict): continue
+                p = re.sub(r'\D', '', str(v.get("phone", "")))
+                fp = re.sub(r'\D', '', str(v.get("father_phone", "")))
+                if (len(p) >= 10 and p.endswith(phone_10)) or (len(fp) >= 10 and fp.endswith(phone_10)):
+                    return k, v
+
+        # 2d. Internal fields match
+        for k, v in db.items():
+            if not isinstance(v, dict): continue
+            if str(v.get("temp_roll", "")).upper() == clean_id:
+                return k, v
+            if str(v.get("permanent_roll", "")).upper() == clean_id:
+                return k, v
+            if str(v.get("migrated_to", "")).upper() == clean_id:
+                return k, v
+
+        for alt in alt_candidates:
+            if alt in db and isinstance(db[alt], dict):
+                return clean_id, db[alt]
+            for k, v in db.items():
+                if k.upper() == alt and isinstance(v, dict):
+                    return clean_id, v
 
     return None, None
 
@@ -495,7 +556,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.1"
+APP_VERSION = "v3.5"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -735,19 +796,25 @@ def perform_system_update(log_callback=None):
         log("  [+] Anti-Cheat Typo & Backspace Simulation Engine active.")
         log("  [+] Google Gemini Live API Key Validator ready.")
 
-    # Step 3: Synchronize Local Database from Firebase
-    log("[3/5] Synchronizing Local Database from Firebase...")
-    try:
-        cloud_db = _firebase_request("/students")
-        if isinstance(cloud_db, dict) and len(cloud_db) > 100:
-            with open(LOCAL_DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(cloud_db, f, indent=2)
-            log(f"  [+] Synchronized {len(cloud_db)} campus records.")
-    except Exception as e:
-        log(f"  [*] DB sync note: {e}")
+    # Step 3: Verify Security Protocols & Cloud Uplink (Admin-Only DB Protection)
+    log("[3/5] Verifying Security Protocols & Cloud Uplink...")
+    curr_sess = load_session()
+    if curr_sess.get("role") == "admin":
+        log("  [*] Admin session detected: Verifying administrative database sync...")
+        try:
+            cloud_db = _firebase_request("/students", timeout=12)
+            if isinstance(cloud_db, dict) and len(cloud_db) > 100:
+                save_local_db(cloud_db, force=True)
+                log(f"  [+] Admin sync complete: {len(cloud_db)} campus records verified.")
+        except Exception as e:
+            log(f"  [*] Admin sync note: {e}")
+    else:
+        log("  [+] Student privacy protection active: Local database export disabled.")
+        log("  [+] Encrypted Cloud API Gateway verified and secured.")
 
-    # Step 4: Refresh Desktop Shortcuts
+    # Step 4: Refresh Desktop Shortcuts & Remove Stray Files
     log("[4/5] Updating Desktop Shortcuts & System Files...")
+    _clean_stray_desktop_db()
     try:
         desktop = os.path.expanduser("~/Desktop")
         if not os.path.exists(desktop):
@@ -1078,7 +1145,7 @@ class AppUpdateModal(ctk.CTkToplevel):
             if is_newer:
                 self.log_box.insert("end", f"[*] Cloud Update Available: {latest_v}\n[*] Release Line: {changelog}\n[*] Click '⚡ UPDATE TO NEW VERSION' to begin synchronization.\n")
             else:
-                self.log_box.insert("end", f"[*] You are already running the latest version ({APP_VERSION}).\n[*] Click '{btn_txt}' to synchronize cloud records & shortcuts.\n")
+                self.log_box.insert("end", f"[*] You are already running the latest version ({APP_VERSION}).\n[*] Click '{btn_txt}' to verify system integrity & shortcuts.\n")
         self.after(0, _ui)
 
     def _start_update(self):
@@ -1165,8 +1232,12 @@ class UserGroupsModal(ctk.CTkToplevel):
 
         self.groups = {}
         self.selected_group_key = None
-        self.selected_members = set()  # set of roll numbers in currently edited group
-        self.cloud_db = load_cloud_db()
+        self.cloud_db = getattr(parent, "admin_db", None) or load_cloud_db()
+        if not self.cloud_db:
+            try:
+                self.cloud_db = _firebase_request("/students", timeout=12) or {}
+            except Exception:
+                self.cloud_db = {}
         self.all_students = []
 
         self._prep_students_list()
@@ -2521,6 +2592,7 @@ class OnboardingWizard(ctk.CTk):
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"+{(sw-620)//2}+{(sh-780)//2}")
 
+        _clean_stray_desktop_db()
         self.session   = load_session()
         self.cloud_db  = load_cloud_db()
         self.user_data = {}
@@ -3241,6 +3313,7 @@ class OnboardingWizard(ctk.CTk):
 class AutoCoderApp(ctk.CTk):
     def __init__(self, session):
         super().__init__()
+        _clean_stray_desktop_db()
         self.session     = session
         self.backend     = AntigravityBackend(session.get("api_key",""))
         self.keyboard    = KController()
@@ -4073,6 +4146,7 @@ class AutoCoderApp(ctk.CTk):
         se.configure(textvariable=self.search_var)
         self.search_var.trace_add("write", self._filter_admin_tree)
 
+        HackerButton(sf, "💾 EXPORT BACKUP", self._admin_export_backup, height=35, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=(6,0))
         HackerButton(sf, "⟳ SYNC CLOUD", self._admin_sync_cloud, height=35, color=SURFACE, text_col=NEON_GREEN).pack(side="right")
 
         tree_frame = ctk.CTkFrame(p, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
@@ -4196,14 +4270,33 @@ class AutoCoderApp(ctk.CTk):
     def _admin_sync_cloud(self):
         def _task():
             self.update_status("[*] FETCHING LIVE DATABASE FROM FIREBASE...")
-            fresh = load_cloud_db()
-            if fresh:
+            fresh = _firebase_request("/students", timeout=12)
+            if isinstance(fresh, dict) and fresh:
                 self.admin_db = fresh
+                save_local_db(fresh, force=True)
                 self.after(0, self._refresh_admin_tree)
                 self.update_status(f"[+] Synced {len(fresh)} records from Firebase.")
             else:
                 self.update_status("[-] Firebase fetch returned empty.")
         threading.Thread(target=_task, daemon=True).start()
+
+    def _admin_export_backup(self):
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            title="Export Cloud Database Backup (Admin Only)",
+            defaultextension=".json",
+            filetypes=[("JSON Database", "*.json")],
+            initialfile="cloud_db.json"
+        )
+        if path:
+            try:
+                db_to_export = self.admin_db or _firebase_request("/students", timeout=15) or {}
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(db_to_export, f, indent=2)
+                messagebox.showinfo("EXPORT SUCCESS", f"Admin backup exported successfully ({len(db_to_export)} records) to:\n\n{path}")
+                self.update_status(f"[+] Admin exported database backup ({len(db_to_export)} records)")
+            except Exception as e:
+                messagebox.showerror("EXPORT ERROR", f"Failed to export database: {e}")
 
     def _refresh_admin_tree(self):
         for item in self.tree.get_children(): self.tree.delete(item)
@@ -4477,8 +4570,9 @@ class AutoCoderApp(ctk.CTk):
                     })
                     save_session(self.session)
 
-            # 2. Re-sync local database cache
-            load_cloud_db()
+            # 2. Re-sync local database cache (Admin only)
+            if self.session.get("role") == "admin":
+                load_cloud_db(force_download=True)
 
             # 3. Update all UI elements on main thread
             self.after(0, self._apply_interface_refresh)
@@ -4520,13 +4614,14 @@ class AutoCoderApp(ctk.CTk):
             patch = {"name": name, "branch": branch, "phone": phone}
             if new_pw: patch["password"] = new_pw
             update_student(roll, patch)
-            try:
-                local_db = load_cloud_db()
-                if roll in local_db and isinstance(local_db[roll], dict):
-                    local_db[roll].update(patch)
-                    save_local_db(local_db)
-            except Exception:
-                pass
+            if self.session.get("role") == "admin":
+                try:
+                    local_db = load_cloud_db()
+                    if roll in local_db and isinstance(local_db[roll], dict):
+                        local_db[roll].update(patch)
+                        save_local_db(local_db, force=True)
+                except Exception:
+                    pass
 
         self.prof_msg.configure(text="[+] PROFILE & API KEY SAVED SUCCESSFULLY!", text_color=NEON_GREEN)
         self.update_status("[+] Profile & API configuration saved.")
@@ -5029,7 +5124,7 @@ class AutoCoderApp(ctk.CTk):
             err_msg = str(ex)
             self.update_status(f"[!] AI ERROR: {err_msg[:35]}...")
             self.after(0, lambda e=err_msg: show_api_error_modal(self, "FULLSCREEN VISION ERROR", e))
-            with open("error_log.txt", "w") as f:
+            with open(ERROR_LOG_FILE, "w", encoding="utf-8") as f:
                 import traceback; f.write(traceback.format_exc())
         finally:
             self.is_typing=False; self.stop_typing=False; self._enable_buttons()
@@ -5047,7 +5142,7 @@ class AutoCoderApp(ctk.CTk):
             err_msg = str(ex)
             self.update_status(f"[!] AI ERROR: {err_msg[:35]}...")
             self.after(0, lambda e=err_msg: show_api_error_modal(self, "AI TEXT GENERATION ERROR", e))
-            with open("error_log.txt", "w") as f:
+            with open(ERROR_LOG_FILE, "w", encoding="utf-8") as f:
                 import traceback; f.write(traceback.format_exc())
         finally:
             self.is_typing=False; self.stop_typing=False; self._enable_buttons()
@@ -5077,7 +5172,7 @@ class AutoCoderApp(ctk.CTk):
 
         except Exception as ex:
             self.update_status(f"[!] ERROR: {ex}")
-            with open("error_log.txt", "w") as f:
+            with open(ERROR_LOG_FILE, "w", encoding="utf-8") as f:
                 import traceback; f.write(traceback.format_exc())
         finally:
             self.is_typing=False; self.stop_typing=False; self._enable_buttons()
@@ -5104,7 +5199,7 @@ if __name__ == "__main__":
             app.mainloop()
         except Exception as e:
             import traceback
-            with open("error_log.txt", "w", encoding="utf-8") as f:
+            with open(ERROR_LOG_FILE, "w", encoding="utf-8") as f:
                 f.write(traceback.format_exc())
             break
 

@@ -74,11 +74,8 @@ if exist "%SOURCE_DIR%AgentPrayath.exe" (
     copy /y "%SOURCE_DIR%dist\AgentPrayath.exe" "%INSTALL_DIR%\" >nul 2>&1
 )
 
-if exist "%SOURCE_DIR%cloud_db.json" (
-    copy /y "%SOURCE_DIR%cloud_db.json" "%INSTALL_DIR%\" >nul 2>&1
-) else if exist "%SOURCE_DIR%dist\cloud_db.json" (
-    copy /y "%SOURCE_DIR%dist\cloud_db.json" "%INSTALL_DIR%\" >nul 2>&1
-)
+:: Student Privacy Protection: Do NOT copy unencrypted cloud_db.json to user machines
+if exist "%INSTALL_DIR%\cloud_db.json" del /f /q "%INSTALL_DIR%\cloud_db.json" >nul 2>&1
 
 if exist "%CERT_FILE%" (
     copy /y "%CERT_FILE%" "%INSTALL_DIR%\" >nul 2>&1
