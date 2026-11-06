@@ -762,13 +762,20 @@ def _download_file_with_progress(url, dest_path, log_cb=None):
 
 def safe_restart_app(new_exe_path=None):
     """
-    Safely restart the application avoiding PyInstaller _MEIPASS inheritance bugs.
+    Safely restart the application avoiding PyInstaller _MEIPASS and _PYI_* inheritance bugs.
     Supports swapping executable when a new binary update is downloaded.
-    Guarantees automatic reopening and forceful release of locks.
+    Guarantees automatic reopening, forceful release of locks, and complete environment sanitization.
     """
     clean_env = os.environ.copy()
-    clean_env.pop('_MEIPASS2', None)
-    clean_env.pop('_MEIPASS', None)
+    # 1. Clean entire environment of PyInstaller, MEI, and Python bootstrap variables
+    for k in list(clean_env.keys()):
+        if 'MEI' in k or 'PYI' in k or k.startswith('_PY') or k in ('PYTHONPATH', 'PYTHONHOME'):
+            clean_env.pop(k, None)
+
+    # 2. Clean out any _mei* directories from PATH so child process doesn't inherit dead DLL paths
+    if 'PATH' in clean_env:
+        paths = [p for p in clean_env['PATH'].split(';') if '_mei' not in p.lower()]
+        clean_env['PATH'] = ';'.join(paths)
 
     pid = os.getpid()
 
@@ -810,14 +817,28 @@ if !errorlevel! neq 0 (
     )
 )
 
-:: 3. Clean up downloaded temp file
-del /f /q "{new_exe_path}" >nul 2>&1
+:: 3. Clean up downloaded temp file if it was a temporary file
+if /i not "{new_exe_path}"=="{exe_path}" (
+    del /f /q "{new_exe_path}" >nul 2>&1
+)
 
-:: 4. Relaunch the updated executable from its installation directory
+:: 4. Reset ALL PyInstaller and Python environment variables before relaunch
+set _MEIPASS=
+set _MEIPASS2=
+set _PYI_ARCHIVE_FILE=
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_PARENT_PROCESS_LEVEL=
+set _PYI_SPLASH_IPC=
+set PYINSTALLER_STRICT_UNPACK_MODE=
+set PYINSTALLER_RESET_ENVIRONMENT=
+set PYTHONPATH=
+set PYTHONHOME=
+
+:: 5. Relaunch the updated executable from its installation directory with clean environment
 cd /d "{exe_dir}"
 start "" "{exe_path}"
 
-:: 5. Self-delete updater script
+:: 6. Self-delete updater script
 (goto) 2>nul & del "%~f0"
 exit
 """)
@@ -833,6 +854,16 @@ exit
                     f.write(f"""@echo off
 taskkill /F /PID {pid} >nul 2>&1
 timeout /t 1 /nobreak >nul
+set _MEIPASS=
+set _MEIPASS2=
+set _PYI_ARCHIVE_FILE=
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_PARENT_PROCESS_LEVEL=
+set _PYI_SPLASH_IPC=
+set PYINSTALLER_STRICT_UNPACK_MODE=
+set PYINSTALLER_RESET_ENVIRONMENT=
+set PYTHONPATH=
+set PYTHONHOME=
 cd /d "{exe_dir}"
 start "" "{exe_path}"
 (goto) 2>nul & del "%~f0"
@@ -903,15 +934,24 @@ def perform_system_update(log_callback=None):
             log(f"  -> Source: {download_url[:75]}...")
             temp_exe = os.path.join(tempfile.gettempdir(), f"AgentPrayath_{_safe_key(target_v)}.exe")
             ok = _download_file_with_progress(download_url, temp_exe, log)
-            if ok:
-                downloaded_new_exe = temp_exe
+            candidate_local = os.path.join(BASE_DIR, "dist", "AgentPrayath.exe")
+            if not os.path.exists(candidate_local):
+                candidate_local = os.path.join(os.path.dirname(BASE_DIR), "dist", "AgentPrayath.exe")
+
+            use_local = False
+            if ok and os.path.exists(temp_exe):
                 sz_mb = os.path.getsize(temp_exe) / (1024 * 1024)
-                log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
+                # If remote binary is significantly smaller than current build package (e.g. 31MB vs 46MB), remote is outdated
+                if os.path.exists(candidate_local) and (os.path.getsize(temp_exe) < os.path.getsize(candidate_local) - 5 * 1024 * 1024):
+                    log(f"  [*] Remote binary ({sz_mb:.1f} MB) is an older build than local release package ({os.path.getsize(candidate_local)/(1024*1024):.1f} MB).")
+                    use_local = True
+                else:
+                    downloaded_new_exe = temp_exe
+                    log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
             else:
-                # Check for verified local release candidate fallback
-                candidate_local = os.path.join(BASE_DIR, "dist", "AgentPrayath.exe")
-                if not os.path.exists(candidate_local):
-                    candidate_local = os.path.join(os.path.dirname(BASE_DIR), "dist", "AgentPrayath.exe")
+                use_local = True
+
+            if use_local:
                 if os.path.exists(candidate_local) and os.path.getsize(candidate_local) >= 5 * 1024 * 1024:
                     downloaded_new_exe = candidate_local
                     log(f"  [+] Using verified local release package ({os.path.getsize(candidate_local)/(1024*1024):.1f} MB).")
