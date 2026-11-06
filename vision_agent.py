@@ -406,6 +406,10 @@ def log_update_history(version, message, target_audience="ALL USERS", download_u
     key = f"release_{_safe_key(version)}_{int(time.time())}"
     return _firebase_request(f"/update_history/{key}", method="PUT", data=record)
 
+def clear_update_history():
+    """Purge all records in update_history from Firebase Realtime Database."""
+    return _firebase_request("/update_history", method="DELETE")
+
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
     def __init__(self, api_key=""):
@@ -556,7 +560,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.5"
+APP_VERSION = "v3.7"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -3442,6 +3446,23 @@ class AutoCoderApp(ctk.CTk):
             )
         messagebox.showinfo("BROADCAST CLEARED", "Global broadcast cleared from Firebase.")
 
+    def _clear_update_history_action(self):
+        ans = messagebox.askyesno(
+            "CLEAR UPDATE HISTORY",
+            "Are you sure you want to completely clear the system update and release history from Firebase Cloud?\n\nThis will purge all history records across all user screens."
+        )
+        if not ans:
+            return
+
+        def _task():
+            clear_update_history()
+            def _ui():
+                self._refresh_update_history_table()
+                self.update_status("[+] System update history cleared from Firebase Cloud.")
+                messagebox.showinfo("HISTORY PURGED", "Update and release history has been successfully cleared from Firebase Cloud.")
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
+
     def _load_current_broadcast_info(self):
         def _task():
             try:
@@ -4259,6 +4280,7 @@ class AutoCoderApp(ctk.CTk):
 
         HackerButton(b_act, "📢 BROADCAST UPDATE TO AUDIENCE", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
         HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
+        HackerButton(b_act, "🗑️ CLEAR UPDATE HISTORY", self._clear_update_history_action, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
         HackerButton(b_act, "📜 VIEW RELEASE HISTORY", lambda: self.show_frame("UPDATE_CENTER"), height=34, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left")
 
         self.admin_broadcast_status = ctk.CTkLabel(b_act, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=MUTED, anchor="w")
@@ -4692,6 +4714,7 @@ class AutoCoderApp(ctk.CTk):
         h_hdr = ctk.CTkFrame(hcard, fg_color="transparent")
         h_hdr.pack(fill="x", padx=15, pady=(8, 4))
         ctk.CTkLabel(h_hdr, text="📜 SYSTEM UPDATE & RELEASE HISTORY (AUDIENCE TARGETED)", font=FH3, text_color=NEON_GREEN).pack(side="left")
+        HackerButton(h_hdr, "🗑️ CLEAR HISTORY", self._clear_update_history_action, height=26, color=SURFACE, text_col=DANGER, border_color=DANGER, font=FS).pack(side="right", padx=(8, 0))
         HackerButton(h_hdr, "⟳ REFRESH HISTORY", self._refresh_update_history_table, height=26, color=SURFACE, text_col=NEON_GREEN, font=FS).pack(side="right")
 
         tree_h_frame = ctk.CTkFrame(hcard, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
@@ -4727,11 +4750,11 @@ class AutoCoderApp(ctk.CTk):
                 for itm in self.history_tree.get_children():
                     self.history_tree.delete(itm)
                 if not history:
-                    self.history_tree.insert("", "end", values=("v3.1", "ALL USERS", time.strftime("%Y-%m-%d"), "Testing beta 1 update - DPI Screen Snipper, Targeted Groups", "ROOT_ADMIN"))
+                    self.history_tree.insert("", "end", values=(APP_VERSION, "ALL USERS", time.strftime("%Y-%m-%d"), "History cleared. System up to date with cloud release.", "ROOT_ADMIN"))
                 else:
                     for h in history:
                         self.history_tree.insert("", "end", values=(
-                            h.get("version", "v3.1"),
+                            h.get("version", APP_VERSION),
                             h.get("target_audience", "ALL USERS"),
                             h.get("date_str") or h.get("release_date") or time.strftime("%Y-%m-%d"),
                             h.get("changelog") or h.get("message") or "System updates",
