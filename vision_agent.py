@@ -410,6 +410,96 @@ def clear_update_history():
     """Purge all records in update_history from Firebase Realtime Database."""
     return _firebase_request("/update_history", method="DELETE")
 
+def delete_update_history_item(key):
+    """Delete a specific update entry from update_history in Firebase."""
+    if not key:
+        return None
+    safe = _safe_key(key)
+    res = _firebase_request(f"/update_history/{safe}", method="DELETE")
+    
+    # Re-align latest_version and broadcast if the top record changed
+    history = get_update_history()
+    if history:
+        latest = history[0]
+        latest_v = latest.get("version", APP_VERSION)
+        latest_msg = latest.get("changelog") or latest.get("message", "System update.")
+        latest_url = latest.get("download_url", "")
+        latest_aud = latest.get("target_audience", "ALL USERS (Entire Campus)")
+
+        _firebase_request("/system_config/latest_version", method="PUT", data=latest_v)
+        _firebase_request("/system_config/changelog", method="PUT", data=latest_msg)
+        if latest_url:
+            _firebase_request("/system_config/download_url", method="PUT", data=latest_url)
+
+        _firebase_request("/system_broadcast", method="PUT", data={
+            "version": latest_v,
+            "message": latest_msg,
+            "target_audience": latest_aud,
+            "download_url": latest_url,
+            "timestamp": int(time.time()),
+            "show_popup": False,
+            "author": "ROOT_ADMIN"
+        })
+    else:
+        _firebase_request("/system_broadcast", method="DELETE")
+        _firebase_request("/system_config/latest_version", method="PUT", data=APP_VERSION)
+        _firebase_request("/system_config/changelog", method="PUT", data="Update records cleared.")
+    return res
+
+def revoke_latest_update():
+    """
+    Revoke or delete the latest update release from Firebase:
+    1. Identifies the latest release in /update_history.
+    2. Deletes that release key from /update_history.
+    3. Reverts /system_config and /system_broadcast to the previous release.
+    Returns (success: bool, revoked_version: str, previous_version: str, message: str)
+    """
+    history = get_update_history()
+    if not history:
+        bc = _firebase_request("/system_broadcast")
+        if isinstance(bc, dict) and bc.get("version"):
+            v = bc.get("version")
+            _firebase_request("/system_broadcast", method="DELETE")
+            _firebase_request("/system_config/latest_version", method="PUT", data=APP_VERSION)
+            return True, v, APP_VERSION, f"Cleared active broadcast {v}."
+        return False, "", "", "No update records found in history to revoke."
+
+    latest_item = history[0]
+    latest_key = latest_item.get("key")
+    latest_version = latest_item.get("version", "UNKNOWN")
+
+    if latest_key:
+        _firebase_request(f"/update_history/{_safe_key(latest_key)}", method="DELETE")
+
+    remaining_history = get_update_history()
+    if remaining_history:
+        prev = remaining_history[0]
+        prev_v = prev.get("version", APP_VERSION)
+        prev_msg = prev.get("changelog") or prev.get("message", "Previous stable release.")
+        prev_url = prev.get("download_url", "")
+        prev_aud = prev.get("target_audience", "ALL USERS (Entire Campus)")
+
+        _firebase_request("/system_config/latest_version", method="PUT", data=prev_v)
+        _firebase_request("/system_config/changelog", method="PUT", data=prev_msg)
+        if prev_url:
+            _firebase_request("/system_config/download_url", method="PUT", data=prev_url)
+
+        _firebase_request("/system_broadcast", method="PUT", data={
+            "version": prev_v,
+            "message": f"Rollback: Reverted to {prev_v} ({prev_msg})",
+            "target_audience": prev_aud,
+            "download_url": prev_url,
+            "timestamp": int(time.time()),
+            "show_popup": False,
+            "author": "ROOT_ADMIN"
+        })
+        return True, latest_version, prev_v, f"Revoked {latest_version} and successfully rolled back system release to {prev_v}."
+    else:
+        _firebase_request("/system_broadcast", method="DELETE")
+        _firebase_request("/system_config/latest_version", method="PUT", data=APP_VERSION)
+        _firebase_request("/system_config/changelog", method="PUT", data="Latest update revoked by administrator.")
+        return True, latest_version, APP_VERSION, f"Revoked {latest_version}. History is now empty and broadcasts cleared."
+
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
     def __init__(self, api_key=""):
@@ -3506,6 +3596,87 @@ class AutoCoderApp(ctk.CTk):
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
 
+    def _admin_revoke_latest_update(self):
+        """Revoke or delete the latest update release and roll back to the previous one."""
+        confirm = messagebox.askyesno(
+            "REVOKE / ROLLBACK LATEST UPDATE",
+            "Are you sure you want to revoke the latest update?\n\n"
+            "This will:\n"
+            "1. Remove the latest release from update history.\n"
+            "2. Roll back Firebase Cloud telemetry and broadcasts to the previous release.\n"
+            "3. Suppress update notifications for the revoked release across all student screens."
+        )
+        if not confirm:
+            return
+
+        def _task():
+            ok, revoked_v, prev_v, msg = revoke_latest_update()
+            def _ui():
+                self._refresh_update_history_table()
+                if hasattr(self, "_refresh_update_telemetry"):
+                    self._refresh_update_telemetry()
+                if hasattr(self, "_load_current_broadcast_info"):
+                    self._load_current_broadcast_info()
+
+                if ok:
+                    self.update_status(f"[*] Revoked release {revoked_v} -> Reverted to {prev_v}.")
+                    if hasattr(self, "admin_broadcast_status"):
+                        self.admin_broadcast_status.configure(
+                            text=f"[*] REVOKED {revoked_v}: Reverted system release to {prev_v}.",
+                            text_color=WARNING
+                        )
+                    messagebox.showinfo(
+                        "UPDATE REVOKED",
+                        f"Successfully revoked release {revoked_v}!\n\n"
+                        f"Active System Version Reverted To: {prev_v}\n\n"
+                        f"{msg}"
+                    )
+                else:
+                    self.update_status(f"[!] Revoke failed: {msg}")
+                    messagebox.showwarning("REVOKE NOTE", msg)
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _delete_selected_history_item(self):
+        """Delete whichever release row is currently selected in the history tree."""
+        if not hasattr(self, "history_tree"):
+            return
+        sel = self.history_tree.selection()
+        if not sel:
+            messagebox.showinfo("SELECT ROW", "Please click on an update row in the table below to select it first, then click 'DELETE SELECTED'.")
+            return
+        item_id = sel[0]
+        vals = self.history_tree.item(item_id, "values")
+        if not vals:
+            return
+        version = vals[0]
+        changelog = vals[3] if len(vals) > 3 else ""
+
+        key_map = getattr(self, "_history_key_map", {})
+        target_key = key_map.get(item_id)
+
+        confirm = messagebox.askyesno(
+            "DELETE RELEASE ENTRY",
+            f"Are you sure you want to delete this release record from Firebase?\n\nVersion: {version}\nChangelog: {changelog}"
+        )
+        if not confirm:
+            return
+
+        def _task():
+            if target_key:
+                delete_update_history_item(target_key)
+            else:
+                revoke_latest_update()
+
+            def _ui():
+                self._refresh_update_history_table()
+                if hasattr(self, "_refresh_update_telemetry"):
+                    self._refresh_update_telemetry()
+                self.update_status(f"[-] Deleted release entry {version} from Firebase.")
+                messagebox.showinfo("DELETED", f"Update record for {version} was removed from Firebase.")
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
+
     def _load_current_broadcast_info(self):
         def _task():
             try:
@@ -4324,6 +4495,7 @@ class AutoCoderApp(ctk.CTk):
 
         HackerButton(b_act, "📢 BROADCAST UPDATE TO AUDIENCE", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
         HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
+        HackerButton(b_act, "⏪ REVOKE LAST UPDATE", self._admin_revoke_latest_update, height=34, color=SURFACE, text_col=WARNING, border_color=WARNING).pack(side="left", padx=(0, 10))
         HackerButton(b_act, "🗑️ CLEAR UPDATE HISTORY", self._clear_update_history_action, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
         HackerButton(b_act, "📜 VIEW RELEASE HISTORY", lambda: self.show_frame("UPDATE_CENTER"), height=34, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left")
 
@@ -4759,8 +4931,10 @@ class AutoCoderApp(ctk.CTk):
         h_hdr = ctk.CTkFrame(hcard, fg_color="transparent")
         h_hdr.pack(fill="x", padx=15, pady=(8, 4))
         ctk.CTkLabel(h_hdr, text="📜 SYSTEM UPDATE & RELEASE HISTORY (AUDIENCE TARGETED)", font=FH3, text_color=NEON_GREEN).pack(side="left")
-        HackerButton(h_hdr, "🗑️ CLEAR HISTORY", self._clear_update_history_action, height=26, color=SURFACE, text_col=DANGER, border_color=DANGER, font=FS).pack(side="right", padx=(8, 0))
-        HackerButton(h_hdr, "⟳ REFRESH HISTORY", self._refresh_update_history_table, height=26, color=SURFACE, text_col=NEON_GREEN, font=FS).pack(side="right")
+        HackerButton(h_hdr, "🗑️ CLEAR ALL", self._clear_update_history_action, height=26, color=SURFACE, text_col=DANGER, border_color=DANGER, font=FS).pack(side="right", padx=(6, 0))
+        HackerButton(h_hdr, "🗑️ DELETE SELECTED", self._delete_selected_history_item, height=26, color=SURFACE, text_col=DANGER, border_color=DANGER, font=FS).pack(side="right", padx=(6, 0))
+        HackerButton(h_hdr, "⏪ REVOKE LAST UPDATE", self._admin_revoke_latest_update, height=26, color=SURFACE, text_col=WARNING, border_color=WARNING, font=FS).pack(side="right", padx=(6, 0))
+        HackerButton(h_hdr, "⟳ REFRESH", self._refresh_update_history_table, height=26, color=SURFACE, text_col=NEON_GREEN, font=FS).pack(side="right")
 
         tree_h_frame = ctk.CTkFrame(hcard, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
         tree_h_frame.pack(fill="both", expand=True, padx=15, pady=(4, 10))
@@ -4792,19 +4966,21 @@ class AutoCoderApp(ctk.CTk):
             history = get_update_history()
             def _ui():
                 if not hasattr(self, "history_tree"): return
+                self._history_key_map = {}
                 for itm in self.history_tree.get_children():
                     self.history_tree.delete(itm)
                 if not history:
                     self.history_tree.insert("", "end", values=(APP_VERSION, "ALL USERS", time.strftime("%Y-%m-%d"), "History cleared. System up to date with cloud release.", "ROOT_ADMIN"))
                 else:
                     for h in history:
-                        self.history_tree.insert("", "end", values=(
+                        iid = self.history_tree.insert("", "end", values=(
                             h.get("version", APP_VERSION),
                             h.get("target_audience", "ALL USERS"),
                             h.get("date_str") or h.get("release_date") or time.strftime("%Y-%m-%d"),
                             h.get("changelog") or h.get("message") or "System updates",
                             h.get("author", "ADMIN")
                         ))
+                        self._history_key_map[iid] = h.get("key")
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
 
