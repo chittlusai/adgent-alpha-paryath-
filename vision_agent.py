@@ -572,10 +572,12 @@ def parse_version_tuple(v_str):
     nums = re.findall(r'\d+', str(v_str))
     return tuple(int(n) for n in nums) if nums else (0, 0)
 
-def is_version_newer(target_v, current_v=APP_VERSION):
+def is_version_newer(target_v, current_v=None):
     """Check if target version strictly represents a newer update compared to current version."""
     if not target_v:
         return False
+    if current_v is None:
+        current_v = APP_VERSION
     t_tuple = parse_version_tuple(target_v)
     c_tuple = parse_version_tuple(current_v)
     max_len = max(len(t_tuple), len(c_tuple))
@@ -672,68 +674,115 @@ def safe_restart_app(new_exe_path=None):
     """
     Safely restart the application avoiding PyInstaller _MEIPASS inheritance bugs.
     Supports swapping executable when a new binary update is downloaded.
+    Guarantees automatic reopening and forceful release of locks.
     """
     clean_env = os.environ.copy()
     clean_env.pop('_MEIPASS2', None)
     clean_env.pop('_MEIPASS', None)
 
+    pid = os.getpid()
+
     # Strictly verify new_exe_path before proceeding with replacement
+    valid_new_exe = False
     if new_exe_path and os.path.exists(new_exe_path):
         try:
-            if os.path.getsize(new_exe_path) < 5 * 1024 * 1024:
-                new_exe_path = None
-            else:
+            if os.path.getsize(new_exe_path) >= 5 * 1024 * 1024:
                 with open(new_exe_path, "rb") as f_chk:
-                    if f_chk.read(2) != b'MZ':
-                        new_exe_path = None
+                    if f_chk.read(2) == b'MZ':
+                        valid_new_exe = True
         except Exception:
-            new_exe_path = None
+            valid_new_exe = False
 
     try:
         if getattr(sys, 'frozen', False):
             exe_path = sys.executable
-            if new_exe_path and os.path.exists(new_exe_path):
+            exe_dir = os.path.dirname(exe_path)
+            if valid_new_exe and new_exe_path:
                 updater_bat = os.path.join(tempfile.gettempdir(), "prayath_updater.bat")
                 with open(updater_bat, "w", encoding="utf-8") as f:
                     f.write(f"""@echo off
 setlocal enabledelayedexpansion
-timeout /t 2 /nobreak >nul
+title Agent Prayath Auto-Updater
+
+:: 1. Force kill running instance to instantly release file lock
+taskkill /F /PID {pid} >nul 2>&1
+timeout /t 1 /nobreak >nul
+
+:: 2. Robust copy loop with retry
 set RETRY=0
 :copy_loop
 copy /y "{new_exe_path}" "{exe_path}" >nul 2>&1
 if !errorlevel! neq 0 (
     set /a RETRY+=1
-    if !RETRY! leq 10 (
+    if !RETRY! leq 15 (
         timeout /t 1 /nobreak >nul
         goto copy_loop
     )
 )
-del "{new_exe_path}" >nul 2>&1
+
+:: 3. Clean up downloaded temp file
+del /f /q "{new_exe_path}" >nul 2>&1
+
+:: 4. Relaunch the updated executable from its installation directory
+cd /d "{exe_dir}"
 start "" "{exe_path}"
-del "%~f0" >nul 2>&1
+
+:: 5. Self-delete updater script
+(goto) 2>nul & del "%~f0"
+exit
 """)
-                subprocess.Popen(["cmd.exe", "/c", updater_bat], env=clean_env)
+                subprocess.Popen(
+                    ["cmd.exe", "/c", updater_bat],
+                    env=clean_env,
+                    cwd=exe_dir,
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
             else:
                 restarter_bat = os.path.join(tempfile.gettempdir(), "prayath_restart.bat")
                 with open(restarter_bat, "w", encoding="utf-8") as f:
                     f.write(f"""@echo off
-timeout /t 2 /nobreak >nul
+taskkill /F /PID {pid} >nul 2>&1
+timeout /t 1 /nobreak >nul
+cd /d "{exe_dir}"
 start "" "{exe_path}"
-del "%~f0" >nul 2>&1
+(goto) 2>nul & del "%~f0"
+exit
 """)
-                subprocess.Popen(["cmd.exe", "/c", restarter_bat], env=clean_env)
+                subprocess.Popen(
+                    ["cmd.exe", "/c", restarter_bat],
+                    env=clean_env,
+                    cwd=exe_dir,
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
         else:
+            # Running as Python script
             launch_bat = os.path.join(BASE_DIR, "launch.bat")
             if os.path.exists(launch_bat):
-                subprocess.Popen(["cmd.exe", "/c", launch_bat], env=clean_env, cwd=BASE_DIR)
+                subprocess.Popen(
+                    f'start "" "{launch_bat}"',
+                    shell=True,
+                    env=clean_env,
+                    cwd=BASE_DIR
+                )
             else:
                 script = os.path.abspath(__file__)
-                subprocess.Popen([sys.executable, script], env=clean_env, cwd=os.path.dirname(script))
+                subprocess.Popen(
+                    [sys.executable, script],
+                    env=clean_env,
+                    cwd=os.path.dirname(script),
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
     except Exception as e:
         print(f"[Restart Error]: {e}")
-    sys.exit(0)
+
+    try:
+        time.sleep(0.3)
+    except Exception:
+        pass
+    os._exit(0)
 
 def perform_system_update(log_callback=None):
+    global APP_VERSION
     def log(msg):
         if log_callback: log_callback(msg)
         print(f"[Update Engine]: {msg}")
@@ -769,7 +818,8 @@ def perform_system_update(log_callback=None):
                 sz_mb = os.path.getsize(temp_exe) / (1024 * 1024)
                 log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
             else:
-                log("  [*] Standalone binary download verified. Applying system update...")
+                log("  [!] Standalone binary download failed or could not be verified.")
+                return False, APP_VERSION, None
         else:
             log(f"[2/5] Applying System Update: {target_v}...")
             log(f"  [*] Release Line / Changelog: {changelog}")
@@ -787,6 +837,7 @@ def perform_system_update(log_callback=None):
                             new_lines.append(line)
                     with open(target_script, "w", encoding="utf-8") as f_out:
                         f_out.writelines(new_lines)
+                    APP_VERSION = target_v
                     log(f"  [+] vision_agent.py source code updated: Set APP_VERSION = '{target_v}'.")
                     log(f"  [+] Successfully updated line: '{changelog}'.")
             except Exception as e:
@@ -1174,20 +1225,10 @@ class AppUpdateModal(ctk.CTkToplevel):
                 ok, v, new_exe = True, APP_VERSION, None
             self.after(0, lambda: self.prog_bar.set(1.0))
             if ok:
-                if new_exe:
-                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                    _log_cb("[*] Restarting application in 2 seconds...")
-                    time.sleep(2)
-                    self.after(0, lambda: self._restart_app(new_exe))
-                else:
-                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                    _log_cb(f"[*] Active release: {v}")
-                    _log_cb("[*] All local records and configurations verified.")
-                    def _done_ui():
-                        self.btn_start.configure(state="normal", text="✔ UP TO DATE")
-                        if hasattr(self.parent, "_apply_interface_refresh"):
-                            self.parent._apply_interface_refresh(new_version=v)
-                    self.after(0, _done_ui)
+                _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                _log_cb("[*] Automatically reopening application in 2 seconds...")
+                time.sleep(1.8)
+                self.after(0, lambda: self._restart_app(new_exe))
             else:
                 _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
                 self.after(0, lambda: self.btn_start.configure(state="normal"))
@@ -3365,6 +3406,8 @@ class AutoCoderApp(ctk.CTk):
     
     def _dismiss_broadcast(self):
         try:
+            if hasattr(self, "_active_broadcast_v") and self._active_broadcast_v:
+                self._popup_shown_for = self._active_broadcast_v
             self.broadcast_banner.pack_forget()
         except Exception:
             pass
@@ -3565,7 +3608,8 @@ class AutoCoderApp(ctk.CTk):
                                 self._check_update_and_refresh_ui()
                     self.after(0, _show_ui)
                 else:
-                    # User is running latest version or newer: ensure notification banner is hidden
+                    # User is running latest version or newer: ensure notification banner is hidden and suppressed
+                    self._popup_shown_for = v
                     def _hide_ui():
                         if hasattr(self, "broadcast_banner"):
                             self.broadcast_banner.pack_forget()
@@ -4492,6 +4536,7 @@ class AutoCoderApp(ctk.CTk):
         global APP_VERSION
         if new_version:
             APP_VERSION = new_version
+            self._popup_shown_for = new_version
         v_display = APP_VERSION
         pr = self.session
         role = pr.get("role", "UNKNOWN").upper()
@@ -4808,25 +4853,15 @@ class AutoCoderApp(ctk.CTk):
             self.after(0, lambda: self.tab_update_prog.set(1.0))
             if ok:
                 self._new_exe_path = new_exe
-                if new_exe:
-                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                    _log_cb("[*] Restarting application in 2 seconds...")
-                    self.after(0, lambda: messagebox.showinfo(
+                _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
+                _log_cb("[*] Automatically reopening application in 2 seconds...")
+                def _do_restart():
+                    messagebox.showinfo(
                         "UPDATE SUCCESSFUL",
-                        f"AGENT PRAYATH has been updated to {v} successfully!\n\nThe application will now restart."
-                    ))
-                    time.sleep(1.5)
-                    self.after(0, self._restart_application)
-                else:
-                    _log_cb(f"\n[+] UPDATE TO {v} COMPLETED SUCCESSFULLY!")
-                    _log_cb(f"[*] Live Release: {v}")
-                    _log_cb("[*] System interface and release line synchronized.")
-                    _log_cb("[*] All local records and configurations verified.")
-                    def _tab_done():
-                        self.btn_tab_update.configure(state="normal", text="✔ UP TO DATE")
-                        self._apply_interface_refresh(new_version=v)
-                        messagebox.showinfo("UPDATE COMPLETED", f"AGENT PRAYATH has been updated to {v} successfully!\n\nRelease note: {self.lbl_changelog.cget('text').replace('• ', '')}")
-                    self.after(0, _tab_done)
+                        f"AGENT PRAYATH has been updated to {v} successfully!\n\nThe application will now automatically reopen."
+                    )
+                    self._restart_application()
+                self.after(500, _do_restart)
             else:
                 _log_cb("\n[!] Synchronization incomplete. Current installation preserved.")
                 self.after(0, lambda: self.btn_tab_update.configure(state="normal"))
