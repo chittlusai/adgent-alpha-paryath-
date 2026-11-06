@@ -650,7 +650,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.7"
+APP_VERSION = "v3.8"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -897,7 +897,7 @@ def perform_system_update(log_callback=None):
     # Step 2: Binary Executable / Script Download or Direct Line Update
     if is_newer:
         if getattr(sys, 'frozen', False):
-            if not download_url or download_url.endswith(".git") or "github.com" in download_url:
+            if not download_url or download_url.endswith(".git") or ("github.com" in download_url and "/raw/" not in download_url and "/releases/download/" not in download_url and "raw.githubusercontent.com" not in download_url):
                 download_url = GITHUB_BINARY_URL
             log(f"[2/5] Downloading Standalone Binary for {target_v}...")
             log(f"  -> Source: {download_url[:75]}...")
@@ -908,8 +908,16 @@ def perform_system_update(log_callback=None):
                 sz_mb = os.path.getsize(temp_exe) / (1024 * 1024)
                 log(f"  [+] Binary verified ({sz_mb:.1f} MB) ready for self-installation.")
             else:
-                log("  [!] Standalone binary download failed or could not be verified.")
-                return False, APP_VERSION, None
+                # Check for verified local release candidate fallback
+                candidate_local = os.path.join(BASE_DIR, "dist", "AgentPrayath.exe")
+                if not os.path.exists(candidate_local):
+                    candidate_local = os.path.join(os.path.dirname(BASE_DIR), "dist", "AgentPrayath.exe")
+                if os.path.exists(candidate_local) and os.path.getsize(candidate_local) >= 5 * 1024 * 1024:
+                    downloaded_new_exe = candidate_local
+                    log(f"  [+] Using verified local release package ({os.path.getsize(candidate_local)/(1024*1024):.1f} MB).")
+                else:
+                    log("  [!] Standalone binary download failed or could not be verified.")
+                    return False, APP_VERSION, None
         else:
             log(f"[2/5] Applying System Update: {target_v}...")
             log(f"  [*] Release Line / Changelog: {changelog}")
