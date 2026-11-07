@@ -42,7 +42,7 @@ Run:  python vision_agent.py
 """
 
 import os, sys, time, json, threading, subprocess, webbrowser, random, shutil, tempfile, re
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 from tkinter import ttk
 
 # ── Dependency Bootstrapper ──────────────────────────────────────────────────
@@ -164,11 +164,17 @@ def save_session(data):
 FIREBASE_URL = "https://alpha-agent-2d55f-default-rtdb.firebaseio.com"
 
 def _safe_key(key):
+    """Sanitize key for Firebase REST paths, replacing invalid characters."""
     return str(key).strip().replace(".", "_").replace("#", "_").replace("$", "_").replace("[", "_").replace("]", "_").replace("/", "_")
 
 def _firebase_request(path, method="GET", data=None, timeout=6):
-    """Execute authenticated REST request to Firebase Realtime Database."""
-    url = f"{FIREBASE_URL}{path}.json"
+    """Execute authenticated REST request to Firebase Realtime Database with robust path quoting."""
+    # Ensure all path segments are safely URL-quoted so spaces, unicode, and control characters never throw URLError
+    clean_segments = []
+    for seg in str(path).split("/"):
+        clean_segments.append(urllib.parse.quote(seg, safe=""))
+    clean_path = "/".join(clean_segments)
+    url = f"{FIREBASE_URL}{clean_path}.json"
     body = json.dumps(data).encode('utf-8') if data is not None else None
     headers = {'Content-Type': 'application/json'} if body else {}
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
@@ -650,7 +656,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.8"
+APP_VERSION = "v3.9"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -1415,17 +1421,28 @@ class UserGroupsModal(ctk.CTkToplevel):
 
         self.groups = {}
         self.selected_group_key = None
-        self.cloud_db = getattr(parent, "admin_db", None) or load_cloud_db()
-        if not self.cloud_db:
-            try:
-                self.cloud_db = _firebase_request("/students", timeout=12) or {}
-            except Exception:
-                self.cloud_db = {}
+        self.cloud_db = getattr(parent, "admin_db", None) or load_cloud_db() or {}
         self.all_students = []
 
         self._prep_students_list()
         self._build_ui()
         self._load_groups_from_cloud()
+        if not self.all_students:
+            self._load_students_async()
+
+    def _load_students_async(self):
+        def _task():
+            try:
+                fresh = _firebase_request("/students", timeout=12)
+                if isinstance(fresh, dict) and fresh:
+                    self.cloud_db = fresh
+                    def _ui():
+                        self._prep_students_list()
+                        self._refresh_student_tree()
+                    self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
 
     def _prep_students_list(self):
         self.all_students = []
@@ -1573,15 +1590,17 @@ class UserGroupsModal(ctk.CTkToplevel):
     def _load_groups_from_cloud(self):
         def _task():
             data = get_user_groups()
-            self.groups = data
+            self.groups = data if isinstance(data, dict) else {}
             def _ui():
-                for item in self.groups_tree.get_children():
+                for item in list(self.groups_tree.get_children()):
                     self.groups_tree.delete(item)
-                for gname, ginfo in sorted(self.groups.items()):
+                for gname, ginfo in sorted(self.groups.items(), key=lambda x: str(x[0]).lower()):
                     if isinstance(ginfo, dict):
                         members = ginfo.get("members", [])
                         count = len(members) if isinstance(members, list) else 0
                         self.groups_tree.insert("", "end", iid=gname, values=(gname, f"{count} users"))
+                if self.selected_group_key and self.groups_tree.exists(self.selected_group_key):
+                    self.groups_tree.selection_set(self.selected_group_key)
                 self._refresh_student_tree()
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
@@ -1591,7 +1610,13 @@ class UserGroupsModal(ctk.CTkToplevel):
         self.selected_members = set()
         self.grp_name_entry.delete(0, "end")
         self.grp_desc_entry.delete(0, "end")
+        for sel in self.groups_tree.selection():
+            self.groups_tree.selection_remove(sel)
+        self.branch_filter_var.set("ALL BRANCHES")
+        self.gender_filter_var.set("ALL")
+        self.search_var.set("")
         self.lbl_grp_status.configure(text="[+] Enter new group details.", text_color=NEON_GREEN)
+        self.grp_name_entry.focus_set()
         self._refresh_student_tree()
 
     def _on_group_selected(self, event):
@@ -1644,6 +1669,9 @@ class UserGroupsModal(ctk.CTkToplevel):
 
             # Search query
             if query and (query not in roll.lower() and query not in name.lower() and query not in branch.lower()):
+                continue
+
+            if self.students_tree.exists(roll):
                 continue
 
             is_sel = "[✓] YES" if roll in self.selected_members else "[ ] --"
@@ -1707,6 +1735,7 @@ class UserGroupsModal(ctk.CTkToplevel):
         b_flt = self.branch_filter_var.get()
         g_flt = self.gender_filter_var.get()
 
+        author = getattr(self.parent, "session", {}).get("name", "ADMIN")
         data = {
             "name": name,
             "description": desc,
@@ -1715,20 +1744,26 @@ class UserGroupsModal(ctk.CTkToplevel):
             "members": sorted(list(self.selected_members)),
             "count": len(self.selected_members),
             "updated_at": int(time.time()),
-            "author": self.parent.session.get("name", "ADMIN")
+            "author": author
         }
 
         self.lbl_grp_status.configure(text="[*] Uploading group to Firebase Cloud...", text_color=NEON_GREEN)
         def _task():
-            set_user_group(name, data)
+            res = set_user_group(name, data)
             def _ui():
-                self.groups[name] = data
-                self.selected_group_key = name
-                self.lbl_grp_status.configure(text=f"[+] Group '{name}' saved to Cloud ({len(self.selected_members)} users)!", text_color=NEON_GREEN)
-                messagebox.showinfo("GROUP SAVED", f"Group '{name}' saved successfully with {len(self.selected_members)} student members!")
-                self._load_groups_from_cloud()
-                if hasattr(self.parent, "_refresh_admin_target_options"):
-                    self.parent._refresh_admin_target_options()
+                if res is not None:
+                    self.groups[name] = data
+                    self.selected_group_key = name
+                    self.lbl_grp_status.configure(text=f"[+] Group '{name}' saved to Cloud ({len(self.selected_members)} users)!", text_color=NEON_GREEN)
+                    messagebox.showinfo("GROUP SAVED", f"Group '{name}' created/saved successfully with {len(self.selected_members)} student members!")
+                    self._load_groups_from_cloud()
+                    if hasattr(self.parent, "_refresh_admin_target_options"):
+                        self.parent._refresh_admin_target_options()
+                    if hasattr(self.parent, "_refresh_admin_group_filter_options"):
+                        self.parent._refresh_admin_group_filter_options()
+                else:
+                    self.lbl_grp_status.configure(text=f"[!] Failed to save group '{name}'.", text_color=DANGER)
+                    messagebox.showerror("SAVE FAILED", f"Could not create group '{name}' in Firebase Cloud. Please check your network connection.")
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
 
@@ -1749,6 +1784,8 @@ class UserGroupsModal(ctk.CTkToplevel):
                 self._load_groups_from_cloud()
                 if hasattr(self.parent, "_refresh_admin_target_options"):
                     self.parent._refresh_admin_target_options()
+                if hasattr(self.parent, "_refresh_admin_group_filter_options"):
+                    self.parent._refresh_admin_group_filter_options()
                 messagebox.showinfo("GROUP DELETED", f"Group '{gname}' deleted from Firebase Cloud.")
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
@@ -3567,15 +3604,24 @@ class AutoCoderApp(ctk.CTk):
         def _task():
             try:
                 groups = get_user_groups()
-                group_opts = [f"GROUP: {gname}" for gname in sorted(groups.keys()) if isinstance(groups[gname], dict)]
+                self.user_groups_cache = groups if isinstance(groups, dict) else {}
+                group_opts = [f"GROUP: {gname}" for gname in sorted(self.user_groups_cache.keys()) if isinstance(self.user_groups_cache[gname], dict)]
                 full_opts = base_options + group_opts
                 def _ui():
                     if hasattr(self, "admin_target_menu"):
                         self.admin_target_menu.configure(values=full_opts)
+                    if hasattr(self, "admin_group_filter_menu"):
+                        grp_filter_opts = ["ALL GROUPS"] + sorted(list(self.user_groups_cache.keys()))
+                        self.admin_group_filter_menu.configure(values=grp_filter_opts)
+                    if hasattr(self, "_refresh_admin_tree"):
+                        self._refresh_admin_tree()
                 self.after(0, _ui)
             except Exception:
                 pass
         threading.Thread(target=_task, daemon=True).start()
+
+    def _refresh_admin_group_filter_options(self):
+        self._refresh_admin_target_options()
 
     def _admin_broadcast_update(self):
         v = self.admin_upd_v_entry.get().strip() or APP_VERSION
@@ -4420,24 +4466,58 @@ class AutoCoderApp(ctk.CTk):
         style.configure("Hacker.Treeview.Heading", background=DARK_GREEN, foreground=SURFACE, font=FB, relief="flat")
         style.map("Hacker.Treeview", background=[("selected", MUTED)], foreground=[("selected", SURFACE)])
 
-        self.admin_db = load_cloud_db()
+        self.admin_db = load_cloud_db() or {}
+        self.admin_branch_filter = "ALL"
+        self.admin_group_filter = "ALL GROUPS"
+        self.user_groups_cache = {}
+        self._search_after_id = None
+        self._branch_pill_buttons = {}
 
         sf = ctk.CTkFrame(p, fg_color="transparent")
-        sf.pack(fill="x", pady=(5,5), padx=10)
+        sf.pack(fill="x", pady=(5,3), padx=10)
         self.search_var = ctk.StringVar()
-        se = HackerEntry(sf, placeholder="Search Roll No, Name or Branch...")
-        se.pack(side="left", fill="x", expand=True, padx=(0,10))
+        se = HackerEntry(sf, placeholder="🔍 Search Roll No, Name or Branch (Live Fast Filter)...")
+        se.pack(side="left", fill="x", expand=True, padx=(0,8))
         se.configure(textvariable=self.search_var)
         self.search_var.trace_add("write", self._filter_admin_tree)
 
+        HackerButton(sf, "👥 USER GROUPS", self._open_user_groups_modal, height=35, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(side="right", padx=(6,0))
         HackerButton(sf, "💾 EXPORT BACKUP", self._admin_export_backup, height=35, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right", padx=(6,0))
         HackerButton(sf, "⟳ SYNC CLOUD", self._admin_sync_cloud, height=35, color=SURFACE, text_col=NEON_GREEN).pack(side="right")
 
+        # Database Quick Filter & Stats Ribbon
+        flt_ribbon = ctk.CTkFrame(p, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
+        flt_ribbon.pack(fill="x", padx=10, pady=(2, 4))
+
+        ctk.CTkLabel(flt_ribbon, text="Branch:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(8, 3), pady=4)
+        for b_name in ["ALL", "DS", "CSE", "AIML", "ECE", "EEE", "ME", "CE", "TEMP"]:
+            btn = HackerButton(
+                flt_ribbon, b_name, lambda b=b_name: self._set_admin_branch_filter(b),
+                height=26, width=42 if len(b_name) <= 3 else 55, font=FS,
+                color=DARK_GREEN if b_name == "ALL" else SURFACE,
+                text_col=BG if b_name == "ALL" else MUTED
+            )
+            btn.pack(side="left", padx=2, pady=4)
+            self._branch_pill_buttons[b_name] = btn
+
+        ctk.CTkLabel(flt_ribbon, text="Group:", font=FB, text_color=NEON_GREEN).pack(side="left", padx=(12, 3), pady=4)
+        self.admin_group_filter_var = ctk.StringVar(value="ALL GROUPS")
+        self.admin_group_filter_menu = ctk.CTkOptionMenu(
+            flt_ribbon, variable=self.admin_group_filter_var,
+            values=["ALL GROUPS"],
+            command=self._on_admin_group_filter_changed,
+            fg_color=SURFACE, text_color=NEON_GREEN, button_color=DARK_GREEN, font=FS, width=150
+        )
+        self.admin_group_filter_menu.pack(side="left", padx=4, pady=4)
+
+        self.lbl_admin_db_stats = ctk.CTkLabel(flt_ribbon, text="📊 TOTAL: 0 STUDENTS", font=FB, text_color=NEON_GREEN)
+        self.lbl_admin_db_stats.pack(side="right", padx=12, pady=4)
+
         tree_frame = ctk.CTkFrame(p, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
-        tree_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=4)
 
         cols = ("Roll", "Name", "Branch", "Status", "Password", "Phone")
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Hacker.Treeview", height=7)
+        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Hacker.Treeview", height=12)
         self.tree.heading("Roll", text="ROLL NO")
         self.tree.heading("Name", text="FULL NAME")
         self.tree.heading("Branch", text="BRANCH")
@@ -4452,6 +4532,10 @@ class AutoCoderApp(ctk.CTk):
         self.tree.column("Password", width=100)
         self.tree.column("Phone", width=110)
 
+        self.tree.tag_configure("perm", foreground=NEON_GREEN)
+        self.tree.tag_configure("temp", foreground="#ffb300")
+        self.tree.tag_configure("migrated", foreground="#00e5ff")
+
         scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
@@ -4459,7 +4543,7 @@ class AutoCoderApp(ctk.CTk):
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
         form = ctk.CTkFrame(p, fg_color="transparent")
-        form.pack(fill="x", padx=10, pady=5)
+        form.pack(fill="x", padx=10, pady=4)
 
         ctk.CTkLabel(form, text="Roll:", font=FS, text_color=MUTED).grid(row=0, column=0, padx=4, pady=2, sticky="e")
         self.edt_roll = HackerEntry(form); self.edt_roll.grid(row=0, column=1, padx=4, pady=2, sticky="ew")
@@ -4476,12 +4560,14 @@ class AutoCoderApp(ctk.CTk):
         form.columnconfigure(1, weight=1); form.columnconfigure(3, weight=1)
 
         btns = ctk.CTkFrame(p, fg_color="transparent")
-        btns.pack(fill="x", padx=10, pady=5)
-        HackerButton(btns, "ADD NEW USER", self._admin_add).pack(side="left", expand=True, padx=2)
-        HackerButton(btns, "UPDATE USER & PW", self._admin_update).pack(side="left", expand=True, padx=2)
-        HackerButton(btns, "DELETE USER", self._admin_delete, color=DANGER, text_col="#ffffff", border_color=DANGER).pack(side="left", expand=True, padx=2)
+        btns.pack(fill="x", padx=10, pady=4)
+        HackerButton(btns, "➕ ADD USER", self._admin_add, height=32, color=DARK_GREEN, text_col=BG).pack(side="left", expand=True, padx=2)
+        HackerButton(btns, "💾 UPDATE USER & PW", self._admin_update, height=32, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="left", expand=True, padx=2)
+        HackerButton(btns, "🧹 CLEAR FORM", self._admin_clear_form, height=32, color=SURFACE, text_col=MUTED).pack(side="left", expand=True, padx=2)
+        HackerButton(btns, "🗑️ DELETE USER", self._admin_delete, height=32, color=DANGER, text_col="#ffffff", border_color=DANGER).pack(side="left", expand=True, padx=2)
 
         self._refresh_admin_tree()
+        self._refresh_admin_group_filter_options()
 
         # ── GLOBAL UPDATE NOTIFICATION & RELEASE BROADCASTER ─────────────────
         b_card = HackerCard(p)
@@ -4584,32 +4670,98 @@ class AutoCoderApp(ctk.CTk):
             except Exception as e:
                 messagebox.showerror("EXPORT ERROR", f"Failed to export database: {e}")
 
+    def _admin_clear_form(self):
+        self.edt_roll.delete(0, "end")
+        self.edt_name.delete(0, "end")
+        self.edt_branch.delete(0, "end")
+        self.edt_pw.delete(0, "end")
+        for s in self.tree.selection():
+            self.tree.selection_remove(s)
+        self.update_status("[*] User form cleared. Ready for new student.")
+
+    def _set_admin_branch_filter(self, branch):
+        self.admin_branch_filter = branch
+        if hasattr(self, "_branch_pill_buttons"):
+            for b, btn in self._branch_pill_buttons.items():
+                if b == branch:
+                    btn.configure(fg_color=DARK_GREEN, text_color=BG)
+                else:
+                    btn.configure(fg_color=SURFACE, text_color=MUTED)
+        self._refresh_admin_tree()
+
+    def _on_admin_group_filter_changed(self, choice):
+        self.admin_group_filter = choice
+        self._refresh_admin_tree()
+
     def _refresh_admin_tree(self):
-        for item in self.tree.get_children(): self.tree.delete(item)
-        query = self.search_var.get().lower()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        query = self.search_var.get().lower().strip()
+        b_flt = getattr(self, "admin_branch_filter", "ALL").upper()
+        g_flt = getattr(self, "admin_group_filter", "ALL GROUPS")
+
+        group_members = None
+        if g_flt != "ALL GROUPS" and hasattr(self, "user_groups_cache") and g_flt in self.user_groups_cache:
+            ginfo = self.user_groups_cache[g_flt]
+            if isinstance(ginfo, dict):
+                mems = ginfo.get("members", [])
+                if isinstance(mems, list):
+                    group_members = set(str(m).strip().upper() for m in mems)
+
         records = sorted(self.admin_db.items(), key=lambda x: str(x[0]))
         count = 0
         for roll, data in records:
             if not isinstance(data, dict): continue
+            u_roll = str(roll).upper()
             name = str(data.get("name",""))
-            branch = str(data.get("branch",""))
+            branch = str(data.get("branch","")).upper()
             pw = str(data.get("password",""))
             phone = str(data.get("phone","N/A"))
             if data.get("migrated_to"):
                 status = f"-> {data['migrated_to']}"
+                tag = "migrated"
             elif data.get("is_temp"):
                 status = "TEMP_ROLL"
+                tag = "temp"
             else:
                 status = "PERMANENT"
+                tag = "perm"
 
-            if (query in str(roll).lower() or query in name.lower() or 
-                query in branch.lower() or query in status.lower() or query in phone.lower()):
-                self.tree.insert("", "end", values=(roll, name, branch, status, pw, phone))
-                count += 1
-                if count >= 800: break
+            # Branch filter
+            if b_flt != "ALL":
+                if b_flt == "TEMP":
+                    if not data.get("is_temp") and "AUS" not in u_roll:
+                        continue
+                elif b_flt in ("DS", "DATA SCIENCE"):
+                    if branch not in ("DS", "DATA SCIENCE"): continue
+                elif b_flt not in branch:
+                    continue
+
+            # Group filter
+            if group_members is not None and u_roll not in group_members:
+                continue
+
+            # Search query
+            if query and (query not in str(roll).lower() and query not in name.lower() and 
+                query not in branch.lower() and query not in status.lower() and query not in phone.lower()):
+                continue
+
+            self.tree.insert("", "end", values=(roll, name, branch, status, pw, phone), tags=(tag,))
+            count += 1
+            if count >= 800: break
+
+        if hasattr(self, "lbl_admin_db_stats"):
+            tot = len(self.admin_db)
+            grp_cnt = len(getattr(self, "user_groups_cache", {}))
+            self.lbl_admin_db_stats.configure(
+                text=f"📊 DATABASE: {tot:,} STUDENTS  |  🟢 SHOWING: {count}  |  🏷️ GROUPS: {grp_cnt}"
+            )
 
     def _filter_admin_tree(self, *args):
-        self._refresh_admin_tree()
+        if hasattr(self, "_search_after_id") and self._search_after_id:
+            try: self.after_cancel(self._search_after_id)
+            except Exception: pass
+        self._search_after_id = self.after(160, self._refresh_admin_tree)
 
     def _on_tree_select(self, event):
         sel = self.tree.selection()
