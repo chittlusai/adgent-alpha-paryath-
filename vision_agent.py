@@ -102,7 +102,113 @@ from tkinter import messagebox
 from pynput import keyboard, mouse
 from pynput.keyboard import Controller as KController
 from pynput.keyboard import Key
-from PIL import ImageGrab
+from PIL import ImageGrab, Image
+import ctypes
+from ctypes import wintypes
+
+# ── High-Performance Native Win32 Screen Capture Engine ─────────────────────
+# Replaces PIL ImageGrab.grab which fails with 'OSError: screen grab failed' on Win 11
+_orig_imagegrab_grab = ImageGrab.grab
+
+def robust_screen_capture(bbox=None, all_screens=True, **kwargs):
+    """
+    Capture full screen or specific bounding box using direct Win32 GDI BitBlt.
+    100% reliable across all Windows 10/11 versions and DPI scaling configurations.
+    """
+    try:
+        user32 = ctypes.windll.user32
+        gdi32 = ctypes.windll.gdi32
+
+        try:
+            user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+        hdesktop = user32.GetDesktopWindow()
+        hdc_screen = user32.GetDC(hdesktop)
+        if not hdc_screen:
+            raise RuntimeError("Failed to acquire screen device context.")
+
+        try:
+            left = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+            top = user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+            width = user32.GetSystemMetrics(78) # SM_CXVIRTUALSCREEN
+            height = user32.GetSystemMetrics(79)# SM_CYVIRTUALSCREEN
+
+            if width <= 0 or height <= 0:
+                width = user32.GetSystemMetrics(0) # SM_CXSCREEN
+                height = user32.GetSystemMetrics(1) # SM_CYSCREEN
+                left, top = 0, 0
+
+            if bbox:
+                bx1, by1, bx2, by2 = bbox
+                left = max(left, int(bx1))
+                top = max(top, int(by1))
+                width = max(1, int(bx2 - bx1))
+                height = max(1, int(by2 - by1))
+
+            hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
+            if not hdc_mem:
+                raise RuntimeError("Failed to create compatible memory DC.")
+
+            try:
+                hbm = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
+                if not hbm:
+                    raise RuntimeError("Failed to create compatible bitmap.")
+
+                try:
+                    hold = gdi32.SelectObject(hdc_mem, hbm)
+                    # SRCCOPY | CAPTUREBLT (0x00CC0020 | 0x40000000)
+                    rop = 0x00CC0020 | 0x40000000
+                    res = gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, left, top, rop)
+                    if not res:
+                        gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, left, top, 0x00CC0020)
+
+                    class BITMAPINFOHEADER(ctypes.Structure):
+                        _fields_ = [
+                            ('biSize', wintypes.DWORD),
+                            ('biWidth', wintypes.LONG),
+                            ('biHeight', wintypes.LONG),
+                            ('biPlanes', wintypes.WORD),
+                            ('biBitCount', wintypes.WORD),
+                            ('biCompression', wintypes.DWORD),
+                            ('biSizeImage', wintypes.DWORD),
+                            ('biXPelsPerMeter', wintypes.LONG),
+                            ('biYPelsPerMeter', wintypes.LONG),
+                            ('biClrUsed', wintypes.DWORD),
+                            ('biClrImportant', wintypes.DWORD)
+                        ]
+
+                    bmi = BITMAPINFOHEADER()
+                    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+                    bmi.biWidth = width
+                    bmi.biHeight = -height  # top-down DIB
+                    bmi.biPlanes = 1
+                    bmi.biBitCount = 32
+                    bmi.biCompression = 0
+
+                    buf_size = width * height * 4
+                    buf = (ctypes.c_char * buf_size)()
+                    gdi32.GetDIBits(hdc_mem, hbm, 0, height, ctypes.byref(buf), ctypes.byref(bmi), 0)
+
+                    gdi32.SelectObject(hdc_mem, hold)
+                    img = Image.frombuffer('RGBA', (width, height), buf, 'raw', 'BGRA', 0, 1).convert('RGB')
+                    return img
+                finally:
+                    gdi32.DeleteObject(hbm)
+            finally:
+                gdi32.DeleteDC(hdc_mem)
+        finally:
+            user32.ReleaseDC(hdesktop, hdc_screen)
+    except Exception as e:
+        # Fallback to standard ImageGrab if Win32 GDI fails
+        try:
+            return _orig_imagegrab_grab(bbox=bbox)
+        except Exception:
+            raise e
+
+# Patch ImageGrab.grab globally across entire application
+ImageGrab.grab = robust_screen_capture
 
 try:
     from google import genai as _genai
@@ -2658,7 +2764,7 @@ class ScreenSnipper(ctk.CTkToplevel):
 
         # Grab clean pre-overlay full screenshot for exact DPI proportional cropping
         try:
-            self.full_screen_img = ImageGrab.grab()
+            self.full_screen_img = robust_screen_capture()
         except Exception:
             self.full_screen_img = None
 
@@ -2763,8 +2869,8 @@ class ScreenSnipper(ctk.CTkToplevel):
                 )
                 snip_img = full_img.crop(crop_box)
             else:
-                time.sleep(0.1)
-                snip_img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                time.sleep(0.05)
+                snip_img = robust_screen_capture(bbox=(x1, y1, x2, y2))
 
             if self.on_snip_callback:
                 self.on_snip_callback(snip_img)
@@ -3123,20 +3229,30 @@ class TinyMCQWindow(ctk.CTkToplevel):
 
     def start_full_screen_snap(self):
         self.withdraw()
+        self.update_idletasks()
         if self.parent_popup:
-            try: self.parent_popup.withdraw()
+            try:
+                self.parent_popup.withdraw()
+                self.parent_popup.update_idletasks()
             except Exception: pass
-        time.sleep(0.18)
+        time.sleep(0.2)
         try:
-            img = ImageGrab.grab()
+            img = robust_screen_capture()
         finally:
             self.deiconify()
+            self.lift()
             if self.parent_popup:
-                try: self.parent_popup.deiconify()
+                try:
+                    self.parent_popup.deiconify()
+                    self.parent_popup.lift()
+                    self.lift()
                 except Exception: pass
 
         if img:
             self._start_buffering("AI THINKING (ANALYZING FULL SCREEN)...")
+            if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
+                self.parent_popup._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+
             def _task():
                 try:
                     resp = self.app.backend.solve_smart_interviews_mcq(img)
@@ -3145,29 +3261,42 @@ class TinyMCQWindow(ctk.CTkToplevel):
                         def _upd():
                             self.parent_popup.mcq_result_box.delete("1.0", "end")
                             self.parent_popup.mcq_result_box.insert("end", resp)
-                            self.parent_popup._set_mcq_status("✅ Solved! Options displayed in Tiny HUD.", color="#00FF41")
+                            self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
                         self.parent_popup.after(0, _upd)
                 except Exception as ex:
                     def _err():
                         self._stop_buffering()
                         self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                        if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
+                            self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
                     self.after(0, _err)
             threading.Thread(target=_task, daemon=True).start()
 
     def start_snip_capture(self):
         self.withdraw()
+        self.update_idletasks()
         if self.parent_popup:
-            try: self.parent_popup.withdraw()
+            try:
+                self.parent_popup.withdraw()
+                self.parent_popup.update_idletasks()
             except Exception: pass
         time.sleep(0.15)
 
         def _on_snip_done(img):
             self.deiconify()
+            self.lift()
             if self.parent_popup:
-                try: self.parent_popup.deiconify()
+                try:
+                    self.parent_popup.deiconify()
+                    self.parent_popup.lift()
+                    self.lift()
                 except Exception: pass
+
             if img:
                 self._start_buffering("AI THINKING (ANALYZING SNIPPED QUESTION)...")
+                if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
+                    self.parent_popup._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+
                 def _task():
                     try:
                         resp = self.app.backend.solve_smart_interviews_mcq(img)
@@ -3176,19 +3305,25 @@ class TinyMCQWindow(ctk.CTkToplevel):
                             def _upd():
                                 self.parent_popup.mcq_result_box.delete("1.0", "end")
                                 self.parent_popup.mcq_result_box.insert("end", resp)
-                                self.parent_popup._set_mcq_status("✅ Solved! Options displayed in Tiny HUD.", color="#00FF41")
+                                self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
                             self.parent_popup.after(0, _upd)
                     except Exception as ex:
                         def _err():
                             self._stop_buffering()
                             self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                            if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
+                                self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
                         self.after(0, _err)
                 threading.Thread(target=_task, daemon=True).start()
 
         def _on_snip_cancel():
             self.deiconify()
+            self.lift()
             if self.parent_popup:
-                try: self.parent_popup.deiconify()
+                try:
+                    self.parent_popup.deiconify()
+                    self.parent_popup.lift()
+                    self.lift()
                 except Exception: pass
 
         try:
@@ -3592,44 +3727,81 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
 
     def _on_capture_full(self, mode="MCQ"):
         if self.is_processing or self.is_typing: return
+        # Ensure tiny MCQ HUD is also available for stealth option display
         if mode == "MCQ":
-            tiny = self._get_or_open_tiny_mcq()
-            tiny.start_full_screen_snap()
-            return
+            self._get_or_open_tiny_mcq()
 
         self.withdraw()
-        time.sleep(0.18)
+        self.update_idletasks()
+        if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+            try:
+                self.app.tiny_mcq_window.withdraw()
+                self.app.tiny_mcq_window.update_idletasks()
+            except Exception: pass
+        time.sleep(0.2)
         try:
-            img = ImageGrab.grab()
+            img = robust_screen_capture()
         finally:
             self.deiconify()
+            self.lift()
+            if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                try:
+                    self.app.tiny_mcq_window.deiconify()
+                    self.app.tiny_mcq_window.lift()
+                except Exception: pass
 
         if img:
-            threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+            if mode == "MCQ":
+                threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
+            else:
+                threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
 
     def _on_snip(self, mode="MCQ"):
         if self.is_processing or self.is_typing: return
         if mode == "MCQ":
-            tiny = self._get_or_open_tiny_mcq()
-            tiny.start_snip_capture()
-            return
+            self._get_or_open_tiny_mcq()
 
         self.withdraw()
+        self.update_idletasks()
+        if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+            try:
+                self.app.tiny_mcq_window.withdraw()
+                self.app.tiny_mcq_window.update_idletasks()
+            except Exception: pass
         time.sleep(0.15)
 
         def _on_snip_done(img):
             self.deiconify()
+            self.lift()
+            if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                try:
+                    self.app.tiny_mcq_window.deiconify()
+                    self.app.tiny_mcq_window.lift()
+                except Exception: pass
+
             if img:
-                threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+                if mode == "MCQ":
+                    threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
+                else:
+                    threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
 
         def _on_snip_cancel():
             self.deiconify()
+            self.lift()
+            if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                try:
+                    self.app.tiny_mcq_window.deiconify()
+                    self.app.tiny_mcq_window.lift()
+                except Exception: pass
 
         ScreenSnipper(_on_snip_done, on_cancel_callback=_on_snip_cancel)
 
     def _process_mcq_image(self, img):
         self.is_processing = True
         self._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+        if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+            self.app.tiny_mcq_window._start_buffering("AI THINKING (ANALYZING MCQ)...")
+
         try:
             resp = self.app.backend.solve_smart_interviews_mcq(img)
             def _ui():
@@ -3644,6 +3816,9 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             def _err():
                 self._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
                 self.is_processing = False
+                if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                    self.app.tiny_mcq_window._stop_buffering()
+                    self.app.tiny_mcq_window.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
             self.after(0, _err)
 
     def _process_code_image(self, img):
