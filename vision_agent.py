@@ -43,7 +43,8 @@ Run:  python vision_agent.py
 
 import os, sys, time, json, threading, subprocess, webbrowser, random, shutil, tempfile, re
 import urllib.request, urllib.error, urllib.parse
-from tkinter import ttk
+import tkinter as tk
+from tkinter import ttk, messagebox
 
 # ── Dependency Bootstrapper ──────────────────────────────────────────────────
 REQUIRED_PACKAGES = {
@@ -624,20 +625,49 @@ class AntigravityBackend:
             sys_inst = (
                 "You are an elite exam proctor and multiple-choice questions (MCQ) solver for Smart Interviews and campus placement assessments.\n"
                 "Analyze the provided screenshot. Detect and solve all visible multiple-choice questions.\n"
+                "CRITICAL: Start your answer for each question with this exact line:\n"
+                "Q1: [Option Letter]\n"
                 "For EACH question found:\n"
-                "1. State the Question Number and Question Text.\n"
-                "2. List the visible options: (A), (B), (C), (D).\n"
-                "3. In a bold and prominent highlight, state:\n"
+                "1. State: Q<number>: [Option Letter]  (e.g. Q1: B)\n"
+                "2. State the Question Title.\n"
+                "3. List all options: (A), (B), (C), (D).\n"
+                "4. In a bold highlight, state:\n"
                 "   🎯 CORRECT ANSWER: [Option Letter] <Option Text>\n"
-                "4. Provide a crisp, 1-2 sentence explanation or calculation proving why it is correct.\n"
-                "If multiple questions exist on screen, clearly separate each with:\n"
-                "════════════════════════════════════════════════════════════════\n"
+                "5. Provide a crisp, 1-2 sentence explanation proving why it is correct.\n"
+                "If multiple questions exist on screen, separate each with a clear divider line.\n"
                 "Be 100% accurate, definitive, and direct."
             )
             user_prompt = "Read the test questions from this screen and output the exact answers and correct options."
             try:
                 r = self._generate_with_fallback(
                     contents=[user_prompt, image],
+                    config={"system_instruction": sys_inst, "temperature": 0.1}
+                )
+                return r.text.strip()
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if self._rotate_key(): continue
+                raise e
+
+    def solve_smart_interviews_mcq_clip(self, frames):
+        """Analyze multi-frame screen recording across 3 seconds to avoid question cut-off."""
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            sys_inst = (
+                "You are an elite exam proctor analyzing multiple frames recorded over 3 seconds of a test screen.\n"
+                "The user scrolled through the page during the 3 seconds to reveal all parts of the question and options without anything cut off.\n"
+                "Reconstruct the complete question and all options (A, B, C, D) across the frames.\n"
+                "CRITICAL: Start your output with the exact answers formatted as:\n"
+                "Q1: [Option Letter]\n"
+                "Q2: [Option Letter]\n"
+                "Followed by brief question title and rationale.\n"
+                "Be 100% accurate, definitive, and direct."
+            )
+            user_prompt = "Read the question and options across these 3-second recording frames and output the exact question numbers and correct option letters (e.g. Q1: B)."
+            contents = [user_prompt] + frames[:6]
+            try:
+                r = self._generate_with_fallback(
+                    contents=contents,
                     config={"system_instruction": sys_inst, "temperature": 0.1}
                 )
                 return r.text.strip()
@@ -2837,6 +2867,406 @@ class GhostHUD(ctk.CTkToplevel):
         self.app.deiconify()
 
 
+# ── TINY MCQ ANSWER WINDOW (MINIMALIST STEALTH HUD) ───────────────────────────
+class TinyMCQWindow(ctk.CTkToplevel):
+    """
+    Ultra-compact, floating stealth window for MCQ test solving.
+    Displays ONLY question numbers and option letters (e.g. Q1: B, Q2: A)
+    with a live scrolling / buffering animation while thinking.
+    Supports single snapshot and 3-second clip recording to prevent question cut-off.
+    """
+    def __init__(self, app, parent_popup=None):
+        super().__init__()
+        self.app = app
+        self.parent_popup = parent_popup
+        self.title("MCQ HUD")
+
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w, h = 320, 185
+        pos_x = max(10, sw - w - 25)
+        pos_y = 30
+        self.geometry(f"{w}x{h}+{pos_x}+{pos_y}")
+        self.minsize(260, 140)
+        self.configure(fg_color="#020702")
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.96)
+
+        # Drag state
+        self.start_x = 0
+        self.start_y = 0
+
+        # Animation state
+        self.is_buffering = False
+        self.anim_frame = 0
+        self.anim_pos = 0.0
+        self.buffer_msg = "ANALYZING..."
+        self.answers_data = []
+        self.full_details_text = ""
+        self.is_details_open = False
+
+        # ── 1. TITLE BAR (Draggable) ─────────────────────────────────────────
+        top_bar = ctk.CTkFrame(self, fg_color="#081408", height=32, corner_radius=0)
+        top_bar.pack(fill="x", side="top")
+        top_bar.bind("<ButtonPress-1>", self._start_move)
+        top_bar.bind("<B1-Motion>", self._do_move)
+
+        lbl_title = ctk.CTkLabel(top_bar, text="⚡ MCQ HUD", font=("Consolas", 10, "bold"), text_color="#00FF41")
+        lbl_title.pack(side="left", padx=8)
+        lbl_title.bind("<ButtonPress-1>", self._start_move)
+        lbl_title.bind("<B1-Motion>", self._do_move)
+
+        # Quick Actions in Top Bar
+        HackerButton(top_bar, "📸 SNAP", lambda: self._trigger_capture("SNAP"),
+                     height=22, width=54, color="#0f260f", hover="#008F11", text_col="#00FF41", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
+
+        HackerButton(top_bar, "🎥 3s CLIP", lambda: self._trigger_capture("CLIP"),
+                     height=22, width=64, color="#1f538d", hover="#3a7ebf", text_col="#ffffff", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
+
+        HackerButton(top_bar, "✂️ SNIP", lambda: self._trigger_capture("SNIP"),
+                     height=22, width=54, color="#0f260f", hover="#008F11", text_col="#00FF41", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
+
+        HackerButton(top_bar, "✕", self._on_close,
+                     height=20, width=24, color="#330000", hover="#ff003c", text_col="#ffffff", font=("Consolas", 9, "bold")).pack(side="right", padx=6)
+
+        # ── 2. BUFFERING & THINKING ANIMATION CONTAINER ──────────────────────
+        self.anim_frame_container = ctk.CTkFrame(self, fg_color="#050e05", corner_radius=4)
+        self.lbl_buffer_anim = ctk.CTkLabel(
+            self.anim_frame_container,
+            text="[ ⠋ ANALYZING SCREEN... ]",
+            font=("Consolas", 10, "bold"), text_color="#00FF41"
+        )
+        self.lbl_buffer_anim.pack(fill="x", padx=6, pady=(4, 2))
+
+        self.buffer_prog_bar = ctk.CTkProgressBar(
+            self.anim_frame_container, fg_color="#020502", progress_color="#00FF41", height=5
+        )
+        self.buffer_prog_bar.set(0.0)
+        self.buffer_prog_bar.pack(fill="x", padx=10, pady=(2, 6))
+
+        # ── 3. ANSWERS DISPLAY CONTAINER (Shows only ABCD & numbers) ─────────
+        self.answers_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.answers_container.pack(fill="both", expand=True, padx=4, pady=2)
+
+        # Initial placeholder
+        self._render_placeholder()
+
+        # ── 4. FOOTER WITH STATUS & DETAILS TOGGLE ───────────────────────────
+        self.footer = ctk.CTkFrame(self, fg_color="transparent", height=22)
+        self.footer.pack(fill="x", side="bottom", padx=4, pady=2)
+
+        self.lbl_status_tiny = ctk.CTkLabel(self.footer, text="Ready • Click 📸 or 🎥 3s", font=("Consolas", 8), text_color="#00aa22")
+        self.lbl_status_tiny.pack(side="left", padx=4)
+
+        self.btn_toggle_details = HackerButton(
+            self.footer, "Details ▼", self._toggle_details,
+            height=18, width=65, color="#071207", hover="#008F11", text_col="#00FF41", font=("Consolas", 8)
+        )
+        self.btn_toggle_details.pack(side="right", padx=4)
+
+    def _start_move(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+
+    def _do_move(self, event):
+        deltax = event.x - self.start_x
+        deltay = event.y - self.start_y
+        new_x = self.winfo_x() + deltax
+        new_y = self.winfo_y() + deltay
+        self.geometry(f"+{new_x}+{new_y}")
+
+    def _render_placeholder(self):
+        for w in self.answers_container.winfo_children(): w.destroy()
+        lbl = ctk.CTkLabel(
+            self.answers_container,
+            text="> Capture screen or 3s clip\nto reveal MCQ options [A, B, C, D]",
+            font=("Consolas", 10), text_color="#008822", justify="center"
+        )
+        lbl.pack(pady=15)
+
+    # ── BUFFERING & SCROLLING THINKING ANIMATION ─────────────────────────────
+    def _start_buffering(self, message="THINKING..."):
+        self.is_buffering = True
+        self.buffer_msg = message
+        self.anim_frame = 0
+        self.anim_pos = 0.0
+        self.anim_frame_container.pack(fill="x", padx=6, pady=4, before=self.answers_container)
+        self._step_buffering_animation()
+
+    def _step_buffering_animation(self):
+        if not self.is_buffering:
+            return
+
+        spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        sp = spinners[self.anim_frame % len(spinners)]
+
+        width = 10
+        pos = int(self.anim_pos) % width
+        wave = ["░"] * width
+        wave[pos] = "▓"
+        if pos > 0: wave[pos-1] = "▒"
+        if pos < width - 1: wave[pos+1] = "▒"
+        wave_str = "".join(wave)
+
+        self.lbl_buffer_anim.configure(
+            text=f"{sp} [{wave_str}] {self.buffer_msg}",
+            text_color="#00FF41"
+        )
+
+        cycle = (self.anim_frame % 24) / 24.0
+        if (self.anim_frame // 24) % 2 == 1:
+            cycle = 1.0 - cycle
+        self.buffer_prog_bar.set(cycle)
+
+        self.anim_frame += 1
+        self.anim_pos = (self.anim_pos + 0.4) % width
+        self.after(65, self._step_buffering_animation)
+
+    def _stop_buffering(self):
+        self.is_buffering = False
+        try:
+            self.anim_frame_container.pack_forget()
+        except Exception:
+            pass
+
+    # ── PARSE & DISPLAY ANSWERS (ONLY ABCD & NUMBERS) ────────────────────────
+    def display_answers(self, raw_text):
+        self._stop_buffering()
+        self.full_details_text = raw_text
+        self.answers_data = []
+
+        lines = raw_text.splitlines()
+        found_map = {}
+
+        for line in lines:
+            line = line.strip()
+            m = re.search(r'(?:Q(?:uestion)?\s*(\d+)|\b(\d+)\b)[\s.:)-]*[\[(]?([A-Da-d])[\])]?', line, re.I)
+            if m:
+                q_num = m.group(1) or m.group(2)
+                opt = m.group(3).upper()
+                if q_num and opt in "ABCD" and q_num not in found_map:
+                    found_map[q_num] = opt
+                    self.answers_data.append((f"Q{q_num}", opt))
+
+        if not self.answers_data:
+            corr_matches = re.findall(r'CORRECT ANSWER:\s*\[?([A-Da-d])\]?', raw_text, re.I)
+            for idx, c in enumerate(corr_matches, start=1):
+                self.answers_data.append((f"Q{idx}", c.upper()))
+
+        if not self.answers_data:
+            letters = re.findall(r'\b([A-D])\b', raw_text.upper())
+            for idx, let in enumerate(letters[:4], start=1):
+                self.answers_data.append((f"Q{idx}", let))
+
+        for w in self.answers_container.winfo_children(): w.destroy()
+
+        if not self.answers_data:
+            lbl = ctk.CTkLabel(self.answers_container, text="No options detected\nTry 3-Sec Clip or Snip", font=("Consolas", 10), text_color="#ffff55")
+            lbl.pack(pady=15)
+            self.lbl_status_tiny.configure(text="No options found")
+            return
+
+        grid_frame = ctk.CTkFrame(self.answers_container, fg_color="transparent")
+        grid_frame.pack(fill="x", padx=2, pady=4)
+
+        for q_str, opt_letter in self.answers_data:
+            badge = ctk.CTkFrame(grid_frame, fg_color="#071307", border_width=1, border_color="#00FF41", corner_radius=6)
+            badge.pack(side="left", padx=4, pady=2)
+
+            ctk.CTkLabel(badge, text=q_str, font=("Consolas", 9, "bold"), text_color="#00aa22").pack(padx=6, pady=(3, 0))
+            ctk.CTkLabel(badge, text=f"[ {opt_letter} ]", font=("Consolas", 18, "bold"), text_color="#00FF41").pack(padx=8, pady=(0, 4))
+
+        self.lbl_status_tiny.configure(text=f"Solved ({len(self.answers_data)} Qs) • Ready")
+
+    def _toggle_details(self):
+        if not self.is_details_open:
+            self.is_details_open = True
+            self.btn_toggle_details.configure(text="Details ▲")
+            self.geometry(f"{max(self.winfo_width(), 380)}x340")
+            for w in self.answers_container.winfo_children(): w.destroy()
+
+            if self.answers_data:
+                g = ctk.CTkFrame(self.answers_container, fg_color="transparent")
+                g.pack(fill="x", pady=2)
+                for q_str, opt_letter in self.answers_data:
+                    b = ctk.CTkFrame(g, fg_color="#071307", border_width=1, border_color="#00FF41", corner_radius=4)
+                    b.pack(side="left", padx=3, pady=2)
+                    ctk.CTkLabel(b, text=f"{q_str}: [{opt_letter}]", font=("Consolas", 10, "bold"), text_color="#00FF41").pack(padx=6, pady=2)
+
+            tb = ctk.CTkTextbox(self.answers_container, fg_color="#030803", text_color="#d0ffd0", font=("Consolas", 10), height=180)
+            tb.pack(fill="both", expand=True, pady=4)
+            tb.insert("end", self.full_details_text or "No details available.")
+        else:
+            self.is_details_open = False
+            self.btn_toggle_details.configure(text="Details ▼")
+            self.geometry(f"{self.winfo_width()}x185")
+            if self.answers_data:
+                for w in self.answers_container.winfo_children(): w.destroy()
+                grid_frame = ctk.CTkFrame(self.answers_container, fg_color="transparent")
+                grid_frame.pack(fill="x", padx=2, pady=4)
+                for q_str, opt_letter in self.answers_data:
+                    badge = ctk.CTkFrame(grid_frame, fg_color="#071307", border_width=1, border_color="#00FF41", corner_radius=6)
+                    badge.pack(side="left", padx=4, pady=2)
+                    ctk.CTkLabel(badge, text=q_str, font=("Consolas", 9, "bold"), text_color="#00aa22").pack(padx=6, pady=(3, 0))
+                    ctk.CTkLabel(badge, text=f"[ {opt_letter} ]", font=("Consolas", 18, "bold"), text_color="#00FF41").pack(padx=8, pady=(0, 4))
+            else:
+                self._render_placeholder()
+
+    # ── CAPTURE TRIGGERS & 3-SECOND CLIP RECORDING ───────────────────────────
+    def _trigger_capture(self, mode):
+        if self.is_buffering: return
+        if mode == "SNAP":
+            self.start_full_screen_snap()
+        elif mode == "CLIP":
+            self.start_3s_clip_recording()
+        elif mode == "SNIP":
+            self.start_snip_capture()
+
+    def start_full_screen_snap(self):
+        self.withdraw()
+        if self.parent_popup:
+            try: self.parent_popup.withdraw()
+            except Exception: pass
+        time.sleep(0.18)
+        try:
+            img = ImageGrab.grab()
+        finally:
+            self.deiconify()
+            if self.parent_popup:
+                try: self.parent_popup.deiconify()
+                except Exception: pass
+
+        if img:
+            self._start_buffering("AI THINKING (ANALYZING FULL SCREEN)...")
+            def _task():
+                try:
+                    resp = self.app.backend.solve_smart_interviews_mcq(img)
+                    self.after(0, lambda: self.display_answers(resp))
+                    if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
+                        def _upd():
+                            self.parent_popup.mcq_result_box.delete("1.0", "end")
+                            self.parent_popup.mcq_result_box.insert("end", resp)
+                            self.parent_popup._set_mcq_status("✅ Solved! Options displayed in Tiny HUD.", color="#00FF41")
+                        self.parent_popup.after(0, _upd)
+                except Exception as ex:
+                    def _err():
+                        self._stop_buffering()
+                        self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                    self.after(0, _err)
+            threading.Thread(target=_task, daemon=True).start()
+
+    def start_snip_capture(self):
+        self.withdraw()
+        if self.parent_popup:
+            try: self.parent_popup.withdraw()
+            except Exception: pass
+        time.sleep(0.15)
+
+        def _on_snip_done(img):
+            self.deiconify()
+            if self.parent_popup:
+                try: self.parent_popup.deiconify()
+                except Exception: pass
+            if img:
+                self._start_buffering("AI THINKING (ANALYZING SNIPPED QUESTION)...")
+                def _task():
+                    try:
+                        resp = self.app.backend.solve_smart_interviews_mcq(img)
+                        self.after(0, lambda: self.display_answers(resp))
+                        if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
+                            def _upd():
+                                self.parent_popup.mcq_result_box.delete("1.0", "end")
+                                self.parent_popup.mcq_result_box.insert("end", resp)
+                                self.parent_popup._set_mcq_status("✅ Solved! Options displayed in Tiny HUD.", color="#00FF41")
+                            self.parent_popup.after(0, _upd)
+                    except Exception as ex:
+                        def _err():
+                            self._stop_buffering()
+                            self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                        self.after(0, _err)
+                threading.Thread(target=_task, daemon=True).start()
+
+        def _on_snip_cancel():
+            self.deiconify()
+            if self.parent_popup:
+                try: self.parent_popup.deiconify()
+                except Exception: pass
+
+        try:
+            ScreenSnipper(_on_snip_done, on_cancel_callback=_on_snip_cancel)
+        except Exception as e:
+            self.deiconify()
+            self.lbl_status_tiny.configure(text=f"Snip error: {e}", text_color="#ff4444")
+
+    def start_3s_clip_recording(self):
+        """
+        Records a 3-second clip of the screen across 5 frames.
+        Allows student to scroll through test page so nothing is cut off.
+        """
+        self.is_buffering = True
+        self.anim_frame_container.pack(fill="x", padx=6, pady=4, before=self.answers_container)
+        if self.parent_popup:
+            try: self.parent_popup.withdraw()
+            except Exception: pass
+
+        def _record_task():
+            frames = []
+            start_t = time.time()
+            total_duration = 3.0
+            frame_interval = 0.6
+
+            while time.time() - start_t < total_duration:
+                remaining = max(0.0, total_duration - (time.time() - start_t))
+                def _update_rec(rem=remaining):
+                    self.lbl_buffer_anim.configure(
+                        text=f"🔴 RECORDING: {rem:.1f}s (Scroll page now!)",
+                        text_color="#ff4444"
+                    )
+                    self.buffer_prog_bar.set(1.0 - (rem / total_duration))
+                self.after(0, _update_rec)
+
+                try:
+                    img = ImageGrab.grab()
+                    frames.append(img)
+                except Exception:
+                    pass
+
+                time.sleep(frame_interval)
+
+            def _start_think():
+                if self.parent_popup:
+                    try: self.parent_popup.deiconify()
+                    except Exception: pass
+                    self.lift()
+                self._start_buffering("AI THINKING (ANALYZING FULL 3s CLIP)...")
+            self.after(0, _start_think)
+
+            try:
+                resp = self.app.backend.solve_smart_interviews_mcq_clip(frames)
+                self.after(0, lambda: self.display_answers(resp))
+                if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
+                    def _update_parent():
+                        self.parent_popup.mcq_result_box.delete("1.0", "end")
+                        self.parent_popup.mcq_result_box.insert("end", resp)
+                        self.parent_popup._set_mcq_status("✅ 3-Sec Clip Solved! Answers displayed in Tiny HUD.", color="#00FF41")
+                    self.parent_popup.after(0, _update_parent)
+            except Exception as ex:
+                def _err():
+                    self._stop_buffering()
+                    self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                self.after(0, _err)
+
+        threading.Thread(target=_record_task, daemon=True).start()
+
+    def _on_close(self):
+        self._stop_buffering()
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        if hasattr(self.app, "tiny_mcq_window"):
+            self.app.tiny_mcq_window = None
+
+
 # ── SMART INTERVIEWS TEST ENGINE (MCQ SOLVER & AI CODE WRITER) ───────────────
 class SmartInterviewsPopup(ctk.CTkToplevel):
     """
@@ -2976,16 +3406,24 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
         toolbar.pack(fill="x", pady=(0, 6), padx=2)
 
         HackerButton(toolbar, "📸 CAPTURE FULL SCREEN", lambda: self._on_capture_full("MCQ"),
-                     height=34, width=175, color="#008F11", hover="#00FF41", text_col="#000000",
-                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+                     height=34, width=165, color="#008F11", hover="#00FF41", text_col="#000000",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=3, pady=6)
+
+        HackerButton(toolbar, "🎥 3-SEC CLIP SCAN", self._on_3s_clip,
+                     height=34, width=145, color="#1f538d", hover="#3a7ebf", text_col="#ffffff",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=3, pady=6)
 
         HackerButton(toolbar, "✂️ SNIP QUESTION", lambda: self._on_snip("MCQ"),
-                     height=34, width=145, color="#1f538d", hover="#3a7ebf", text_col="#ffffff",
-                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+                     height=34, width=135, color="#0f260f", hover="#008F11", text_col="#00FF41",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=3, pady=6)
+
+        HackerButton(toolbar, "⚡ TINY HUD", self._on_toggle_tiny_hud,
+                     height=34, width=100, color="#0a290a", hover="#00FF41", text_col="#00FF41",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=3, pady=6)
 
         HackerButton(toolbar, "🧹 CLEAR", self._clear_mcq_results,
-                     height=34, width=80, color="#1a1a1a", hover="#333333", text_col="#aaaaaa",
-                     font=("Consolas", 10, "bold")).pack(side="right", padx=5, pady=6)
+                     height=34, width=70, color="#1a1a1a", hover="#333333", text_col="#aaaaaa",
+                     font=("Consolas", 10, "bold")).pack(side="right", padx=3, pady=6)
 
         self.mcq_status_frame = ctk.CTkFrame(self.mcq_frame, fg_color="#0e1f0e", corner_radius=4)
         self.mcq_status_frame.pack(fill="x", pady=(0, 6), padx=2)
@@ -3135,8 +3573,30 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             self._set_code_status("❌ NO CODE READY. Please capture and solve a problem first.", color="#ff4444")
 
     # ── CAPTURE & PIPELINE DISPATCHERS ───────────────────────────────────────
+    def _get_or_open_tiny_mcq(self):
+        if not hasattr(self.app, "tiny_mcq_window") or not self.app.tiny_mcq_window or not self.app.tiny_mcq_window.winfo_exists():
+            self.app.tiny_mcq_window = TinyMCQWindow(self.app, parent_popup=self)
+        else:
+            self.app.tiny_mcq_window.deiconify()
+            self.app.tiny_mcq_window.lift()
+        return self.app.tiny_mcq_window
+
+    def _on_3s_clip(self):
+        tiny = self._get_or_open_tiny_mcq()
+        tiny.start_3s_clip_recording()
+
+    def _on_toggle_tiny_hud(self):
+        tiny = self._get_or_open_tiny_mcq()
+        tiny.deiconify()
+        tiny.lift()
+
     def _on_capture_full(self, mode="MCQ"):
         if self.is_processing or self.is_typing: return
+        if mode == "MCQ":
+            tiny = self._get_or_open_tiny_mcq()
+            tiny.start_full_screen_snap()
+            return
+
         self.withdraw()
         time.sleep(0.18)
         try:
@@ -3145,23 +3605,22 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             self.deiconify()
 
         if img:
-            if mode == "MCQ":
-                threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
-            else:
-                threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+            threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
 
     def _on_snip(self, mode="MCQ"):
         if self.is_processing or self.is_typing: return
+        if mode == "MCQ":
+            tiny = self._get_or_open_tiny_mcq()
+            tiny.start_snip_capture()
+            return
+
         self.withdraw()
         time.sleep(0.15)
 
         def _on_snip_done(img):
             self.deiconify()
             if img:
-                if mode == "MCQ":
-                    threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
-                else:
-                    threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+                threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
 
         def _on_snip_cancel():
             self.deiconify()
@@ -3178,6 +3637,8 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
                 self.mcq_result_box.insert("end", resp)
                 self._set_mcq_status("✅ SOLVED! Correct answer highlighted below:", color="#00FF41")
                 self.is_processing = False
+                if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                    self.app.tiny_mcq_window.display_answers(resp)
             self.after(0, _ui)
         except Exception as ex:
             def _err():
@@ -5444,6 +5905,16 @@ class AutoCoderApp(ctk.CTk):
             self.si_popup.focus_force()
         self.update_status("[+] SMART INTERVIEWS POPUP WINDOW ACTIVATED.")
 
+    def _open_tiny_mcq_window(self):
+        """Open or refocus the Tiny MCQ HUD Window."""
+        if not hasattr(self, "tiny_mcq_window") or not self.tiny_mcq_window or not self.tiny_mcq_window.winfo_exists():
+            self.tiny_mcq_window = TinyMCQWindow(self, parent_popup=getattr(self, "si_popup", None))
+        else:
+            self.tiny_mcq_window.deiconify()
+            self.tiny_mcq_window.lift()
+            self.tiny_mcq_window.focus_force()
+        self.update_status("[+] TINY MCQ HUD WINDOW ACTIVATED.")
+
     def _build_smart_interviews_tab(self, p):
         # Scrollable container for tab contents
         scroll = ctk.CTkScrollableFrame(p, fg_color="transparent")
@@ -5555,7 +6026,10 @@ class AutoCoderApp(ctk.CTk):
         c_btn_row.pack(fill="x", padx=20, pady=(0, 14))
 
         HackerButton(c_btn_row, "🚀 LAUNCH SMART INTERVIEWS POPUP WINDOW", self._open_smart_interviews_popup,
-                     height=42, width=320, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(side="left", padx=(0, 12))
+                     height=42, width=300, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(side="left", padx=(0, 10))
+
+        HackerButton(c_btn_row, "⚡ LAUNCH TINY MCQ HUD (OPTIONS ONLY)", self._open_tiny_mcq_window,
+                     height=42, width=300, color="#1f538d", hover="#3a7ebf", text_col="#ffffff", font=FB).pack(side="left", padx=(0, 12))
 
         # 4. Feature Architecture Guide
         guide_card = HackerCard(scroll)
