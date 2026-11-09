@@ -617,6 +617,61 @@ class AntigravityBackend:
             config={"system_instruction": "You are a competitive programming judge creating rigorous test suites.", "temperature": 0.2})
         return r.text.strip()
 
+    def solve_smart_interviews_mcq(self, image):
+        """Analyze test question screenshot and output question, options, correct answer with explanation."""
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            sys_inst = (
+                "You are an elite exam proctor and multiple-choice questions (MCQ) solver for Smart Interviews and campus placement assessments.\n"
+                "Analyze the provided screenshot. Detect and solve all visible multiple-choice questions.\n"
+                "For EACH question found:\n"
+                "1. State the Question Number and Question Text.\n"
+                "2. List the visible options: (A), (B), (C), (D).\n"
+                "3. In a bold and prominent highlight, state:\n"
+                "   🎯 CORRECT ANSWER: [Option Letter] <Option Text>\n"
+                "4. Provide a crisp, 1-2 sentence explanation or calculation proving why it is correct.\n"
+                "If multiple questions exist on screen, clearly separate each with:\n"
+                "════════════════════════════════════════════════════════════════\n"
+                "Be 100% accurate, definitive, and direct."
+            )
+            user_prompt = "Read the test questions from this screen and output the exact answers and correct options."
+            try:
+                r = self._generate_with_fallback(
+                    contents=[user_prompt, image],
+                    config={"system_instruction": sys_inst, "temperature": 0.1}
+                )
+                return r.text.strip()
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if self._rotate_key(): continue
+                raise e
+
+    def solve_smart_interviews_code(self, image, lang="Python 3"):
+        """Read coding problem screenshot and generate 100% optimal executable code solution."""
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            sys_inst = (
+                f"You are a competitive programming world champion solving a Smart Interviews coding problem in {lang}.\n"
+                "Analyze the coding question in this screenshot: problem statement, input/output formats, constraints, sample test cases.\n"
+                f"Write the complete, 100% optimal and runnable solution in {lang} that passes all visible and hidden test cases.\n"
+                "STRICT RULES:\n"
+                f"- Output ONLY executable code in {lang}.\n"
+                "- Do NOT include any markdown code fences (no ```).\n"
+                "- Do NOT include conversational text, notes, or explanations.\n"
+                "- The very first line of your response MUST be runnable code or standard imports."
+            )
+            user_prompt = f"Read the coding problem on this screen and write the optimal, complete solution in {lang}."
+            try:
+                r = self._generate_with_fallback(
+                    contents=[user_prompt, image],
+                    config={"system_instruction": sys_inst, "temperature": 0.1}
+                )
+                return self._clean(r.text)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if self._rotate_key(): continue
+                raise e
+
 
 # ── HACKER THEME TOKENS ─────────────────────────────────────────────────────
 BG         = "#030303"
@@ -656,7 +711,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v3.9"
+APP_VERSION = "v4.0"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -917,10 +972,18 @@ def perform_system_update(log_callback=None):
     log("[1/5] Contacting Firebase Cloud for update telemetry...")
     info = get_system_update_info()
     bc = _firebase_request("/system_broadcast")
+    curr_sess = load_session()
+    is_admin = (curr_sess.get("role") == "admin")
     if isinstance(bc, dict) and bc.get("version"):
-        target_v = bc.get("version", APP_VERSION)
-        download_url = bc.get("download_url") or info.get("download_url", "")
-        changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
+        target_aud = str(bc.get("target_audience", "ALL USERS")).upper()
+        if "ADMIN" in target_aud and not is_admin:
+            target_v = info.get("latest_version", APP_VERSION)
+            download_url = info.get("download_url") or info.get("update_url", "")
+            changelog = info.get("changelog", "Cloud improvements & bug fixes.")
+        else:
+            target_v = bc.get("version", APP_VERSION)
+            download_url = bc.get("download_url") or info.get("download_url", "")
+            changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
     else:
         target_v = info.get("latest_version", APP_VERSION)
         download_url = info.get("download_url") or info.get("update_url", "")
@@ -1322,8 +1385,20 @@ class AppUpdateModal(ctk.CTkToplevel):
         info = get_system_update_info()
         bc = _firebase_request("/system_broadcast")
         if isinstance(bc, dict) and bc.get("version"):
-            latest_v = bc.get("version", APP_VERSION)
-            changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
+            target_aud = bc.get("target_audience", "ALL USERS")
+            is_eligible = True
+            if hasattr(self.parent, "_is_user_eligible_for_broadcast"):
+                is_eligible = self.parent._is_user_eligible_for_broadcast(target_aud)
+            elif "ADMIN" in str(target_aud).upper():
+                curr_sess = getattr(self.parent, "session", {})
+                is_eligible = (curr_sess.get("role") == "admin")
+
+            if is_eligible:
+                latest_v = bc.get("version", APP_VERSION)
+                changelog = bc.get("message") or info.get("changelog", "Cloud improvements & bug fixes.")
+            else:
+                latest_v = info.get("latest_version", APP_VERSION)
+                changelog = info.get("changelog", "Cloud improvements & bug fixes.")
         else:
             latest_v = info.get("latest_version", APP_VERSION)
             changelog = info.get("changelog", "Cloud improvements & bug fixes.")
@@ -2760,6 +2835,530 @@ class GhostHUD(ctk.CTkToplevel):
             pass
         self.app.ghost_hud = None
         self.app.deiconify()
+
+
+# ── SMART INTERVIEWS TEST ENGINE (MCQ SOLVER & AI CODE WRITER) ───────────────
+class SmartInterviewsPopup(ctk.CTkToplevel):
+    """
+    Floating, Topmost Assessment Assistant for Smart Interviews & Online Coding Tests.
+    - Multiple-Choice Questions (MCQ) Vision Solver
+    - Autonomous AI Code Writer with smart cursor-in-editor detection
+    """
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.title("⚡ SMART INTERVIEWS TEST ENGINE v4.0")
+
+        # Geometry & placement
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w, h = 580, 680
+        pos_x = max(10, sw - w - 25)
+        pos_y = max(10, (sh - h) // 2)
+        self.geometry(f"{w}x{h}+{pos_x}+{pos_y}")
+        self.minsize(500, 520)
+        self.configure(fg_color="#070e07")
+        self.attributes("-topmost", True)
+        self.is_pinned = True
+
+        # State tracking
+        self.current_mode = "MCQ"  # "MCQ" or "CODE"
+        self.is_processing = False
+        self.is_waiting_for_cursor = False
+        self.is_typing = False
+        self.abort_flag = False
+        self.generated_code = ""
+        self.emergency_kb_listener = None
+
+        # Start emergency key listener for ESC / F8
+        self._start_emergency_listener()
+
+        # Window drag state
+        self.start_x = 0
+        self.start_y = 0
+
+        # ── 1. TOP HEADER & SWITCH BUTTON ──────────────────────────────────
+        top_bar = ctk.CTkFrame(self, fg_color="#0d1b0d", height=52, corner_radius=0)
+        top_bar.pack(fill="x", side="top")
+        top_bar.bind("<ButtonPress-1>", self._start_move)
+        top_bar.bind("<B1-Motion>", self._do_move)
+
+        # The prominent Switch button required by user prompt
+        self.btn_switch_mode = HackerButton(
+            top_bar, "🔀 SWITCH TO AI CODE WRITER", self._toggle_mode,
+            height=34, width=220, color="#008F11", hover="#00FF41",
+            text_col="#000000", font=("Consolas", 11, "bold")
+        )
+        self.btn_switch_mode.pack(side="left", padx=(10, 6), pady=8)
+
+        # Mode Badge
+        self.lbl_mode_badge = ctk.CTkLabel(
+            top_bar, text="[ 📝 MCQ SOLVER ]", font=("Consolas", 11, "bold"),
+            text_color="#00FF41"
+        )
+        self.lbl_mode_badge.pack(side="left", padx=4)
+
+        # Window Action Icons (Right)
+        self.btn_close = HackerButton(
+            top_bar, "✕", self._on_close, height=28, width=32,
+            color="#330000", hover="#ff003c", text_col="#ffffff", font=("Consolas", 11, "bold")
+        )
+        self.btn_close.pack(side="right", padx=(4, 10), pady=8)
+
+        self.btn_pin = HackerButton(
+            top_bar, "📌 PINNED", self._toggle_pin, height=28, width=74,
+            color="#0f260f", hover="#008F11", text_col="#00FF41", font=("Consolas", 9, "bold")
+        )
+        self.btn_pin.pack(side="right", padx=4, pady=8)
+
+        # ── 2. MAIN CONTAINER FRAMES (MCQ vs CODE) ──────────────────────────
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True, padx=10, pady=8)
+
+        # Frame A: MCQ Solver View
+        self.mcq_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self._build_mcq_view()
+
+        # Frame B: AI Code Writer View
+        self.code_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self._build_code_writer_view()
+
+        # Show initial mode
+        self.mcq_frame.pack(fill="both", expand=True)
+
+    def _start_move(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+
+    def _do_move(self, event):
+        deltax = event.x - self.start_x
+        deltay = event.y - self.start_y
+        new_x = self.winfo_x() + deltax
+        new_y = self.winfo_y() + deltay
+        self.geometry(f"+{new_x}+{new_y}")
+
+    def _toggle_pin(self):
+        self.is_pinned = not self.is_pinned
+        self.attributes("-topmost", self.is_pinned)
+        if self.is_pinned:
+            self.btn_pin.configure(text="📌 PINNED", fg_color="#0f260f", text_color="#00FF41")
+        else:
+            self.btn_pin.configure(text="📌 UNPINNED", fg_color="#1a1a1a", text_color="#888888")
+
+    def _toggle_mode(self):
+        if self.current_mode == "MCQ":
+            self.current_mode = "CODE"
+            self.mcq_frame.pack_forget()
+            self.code_frame.pack(fill="both", expand=True)
+            self.btn_switch_mode.configure(text="🔀 SWITCH TO MCQ SOLVER", color="#1f538d", hover="#3a7ebf", text_col="#ffffff")
+            self.lbl_mode_badge.configure(text="[ 💻 AI CODE WRITER ]", text_color="#00E5FF")
+        else:
+            self.current_mode = "MCQ"
+            self.code_frame.pack_forget()
+            self.mcq_frame.pack(fill="both", expand=True)
+            self.btn_switch_mode.configure(text="🔀 SWITCH TO AI CODE WRITER", color="#008F11", hover="#00FF41", text_col="#000000")
+            self.lbl_mode_badge.configure(text="[ 📝 MCQ SOLVER ]", text_color="#00FF41")
+
+    def _start_emergency_listener(self):
+        def on_press(k):
+            if k in (Key.esc, Key.f8):
+                if self.is_waiting_for_cursor or self.is_typing or self.is_processing:
+                    self._abort_operation()
+        try:
+            self.emergency_kb_listener = keyboard.Listener(on_press=on_press)
+            self.emergency_kb_listener.daemon = True
+            self.emergency_kb_listener.start()
+        except Exception:
+            self.emergency_kb_listener = None
+
+    # ── MCQ SOLVER VIEW ──────────────────────────────────────────────────────
+    def _build_mcq_view(self):
+        toolbar = ctk.CTkFrame(self.mcq_frame, fg_color="#0a140a", corner_radius=6)
+        toolbar.pack(fill="x", pady=(0, 6), padx=2)
+
+        HackerButton(toolbar, "📸 CAPTURE FULL SCREEN", lambda: self._on_capture_full("MCQ"),
+                     height=34, width=175, color="#008F11", hover="#00FF41", text_col="#000000",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+
+        HackerButton(toolbar, "✂️ SNIP QUESTION", lambda: self._on_snip("MCQ"),
+                     height=34, width=145, color="#1f538d", hover="#3a7ebf", text_col="#ffffff",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+
+        HackerButton(toolbar, "🧹 CLEAR", self._clear_mcq_results,
+                     height=34, width=80, color="#1a1a1a", hover="#333333", text_col="#aaaaaa",
+                     font=("Consolas", 10, "bold")).pack(side="right", padx=5, pady=6)
+
+        self.mcq_status_frame = ctk.CTkFrame(self.mcq_frame, fg_color="#0e1f0e", corner_radius=4)
+        self.mcq_status_frame.pack(fill="x", pady=(0, 6), padx=2)
+
+        self.lbl_mcq_status = ctk.CTkLabel(
+            self.mcq_status_frame,
+            text="⚪ READY: Snip or capture screen to detect test questions & correct answer.",
+            font=("Consolas", 10, "bold"), text_color="#00FF41", anchor="w"
+        )
+        self.lbl_mcq_status.pack(fill="x", padx=10, pady=6)
+
+        self.mcq_result_box = ctk.CTkTextbox(
+            self.mcq_frame, fg_color="#040904", text_color="#e0ffe0",
+            font=("Consolas", 12), border_width=1, border_color="#00FF41"
+        )
+        self.mcq_result_box.pack(fill="both", expand=True, padx=2, pady=4)
+        self.mcq_result_box.insert("end", (
+            "╔════════════════════════════════════════════════════════════════════════════════╗\n"
+            "║                  SMART INTERVIEWS MCQ VISION SOLVER v4.0                       ║\n"
+            "╚════════════════════════════════════════════════════════════════════════════════╝\n\n"
+            "[*] INSTRUCTIONS:\n"
+            "  1. Keep your Smart Interviews or assessment test window open on screen.\n"
+            "  2. Click '📸 CAPTURE FULL SCREEN' or '✂️ SNIP QUESTION' to crop.\n"
+            "  3. Gemini 2.5 Flash analyzes question, options, and returns the CORRECT ANSWER.\n"
+            "  4. Works on single or multiple questions visible on screen.\n"
+        ))
+
+        b_bar = ctk.CTkFrame(self.mcq_frame, fg_color="transparent")
+        b_bar.pack(fill="x", pady=(4, 0))
+
+        HackerButton(b_bar, "📋 COPY FULL ANSWER", self._copy_mcq_text,
+                     height=30, width=160, color="#0f260f", hover="#008F11", text_col="#00FF41",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=2)
+
+    def _set_mcq_status(self, text, color="#00FF41"):
+        def _ui():
+            self.lbl_mcq_status.configure(text=text, text_color=color)
+        self.after(0, _ui)
+
+    def _clear_mcq_results(self):
+        self.mcq_result_box.delete("1.0", "end")
+        self._set_mcq_status("⚪ CLEARED. Ready for next question.")
+
+    def _copy_mcq_text(self):
+        txt = self.mcq_result_box.get("1.0", "end").strip()
+        if txt:
+            self.clipboard_clear()
+            self.clipboard_append(txt)
+            self._set_mcq_status("📋 Copied answer to clipboard!", color="#00FF41")
+
+    # ── AI CODE WRITER VIEW ──────────────────────────────────────────────────
+    def _build_code_writer_view(self):
+        opt_bar = ctk.CTkFrame(self.code_frame, fg_color="#0a140a", corner_radius=6)
+        opt_bar.pack(fill="x", pady=(0, 6), padx=2)
+
+        ctk.CTkLabel(opt_bar, text="Language:", font=("Consolas", 10, "bold"), text_color="#00FF41").pack(side="left", padx=(8, 4), pady=6)
+        self.code_lang_var = ctk.StringVar(value="Python 3")
+        self.code_lang_menu = ctk.CTkOptionMenu(
+            opt_bar, variable=self.code_lang_var,
+            values=["Python 3", "Java", "C++", "C", "JavaScript", "Auto-Detect"],
+            fg_color="#0f260f", text_color="#00FF41", button_color="#008F11", font=("Consolas", 10, "bold"), width=110
+        )
+        self.code_lang_menu.pack(side="left", padx=4, pady=6)
+
+        self.clear_editor_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opt_bar, text="Clear Editor First (Ctrl+A)", variable=self.clear_editor_var,
+            font=("Consolas", 9), text_color="#cccccc", fg_color="#008F11", hover_color="#00FF41"
+        ).pack(side="left", padx=8, pady=6)
+
+        self.typo_sim_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opt_bar, text="Anti-Cheat Cadence", variable=self.typo_sim_var,
+            font=("Consolas", 9), text_color="#cccccc", fg_color="#008F11", hover_color="#00FF41"
+        ).pack(side="left", padx=4, pady=6)
+
+        toolbar = ctk.CTkFrame(self.code_frame, fg_color="#0d1f0d", corner_radius=6)
+        toolbar.pack(fill="x", pady=(0, 6), padx=2)
+
+        HackerButton(toolbar, "📸 CAPTURE & SOLVE CODE", lambda: self._on_capture_full("CODE"),
+                     height=34, width=190, color="#008F11", hover="#00FF41", text_col="#000000",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+
+        HackerButton(toolbar, "✂️ SNIP PROBLEM REGION", lambda: self._on_snip("CODE"),
+                     height=34, width=175, color="#1f538d", hover="#3a7ebf", text_col="#ffffff",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=5, pady=6)
+
+        HackerButton(toolbar, "🛑 ABORT (ESC)", self._abort_operation,
+                     height=34, width=110, color="#440000", hover="#880000", text_col="#ff5555",
+                     font=("Consolas", 10, "bold")).pack(side="right", padx=5, pady=6)
+
+        # PROMINENT CURSOR DETECTION STATUS BANNER
+        self.code_status_frame = ctk.CTkFrame(self.code_frame, fg_color="#081408", border_width=1, border_color="#00FF41", corner_radius=6)
+        self.code_status_frame.pack(fill="x", pady=(0, 6), padx=2)
+
+        self.lbl_code_status = ctk.CTkLabel(
+            self.code_status_frame,
+            text="⚪ READY: Click 'Capture & Solve Code'. Solution will wait for cursor in editor.",
+            font=("Consolas", 11, "bold"), text_color="#00FF41", justify="left", anchor="w"
+        )
+        self.lbl_code_status.pack(fill="x", padx=10, pady=8)
+
+        self.code_preview_box = ctk.CTkTextbox(
+            self.code_frame, fg_color="#040904", text_color="#76ff76",
+            font=("Consolas", 11), border_width=1, border_color="#00FF41"
+        )
+        self.code_preview_box.pack(fill="both", expand=True, padx=2, pady=4)
+        self.code_preview_box.insert("end", (
+            "# ── AUTONOMOUS AI CODE WRITER v4.0 ──────────────────────────────────────────\n"
+            "# 1. Snip or capture the coding problem statement.\n"
+            "# 2. Gemini Vision generates the optimal, tested solution.\n"
+            "# 3. SMART CURSOR WRITER:\n"
+            "#    - The engine WAITS until you click inside your browser code editor.\n"
+            "#    - WITHOUT placing cursor in editor, it will NOT write anything!\n"
+            "#    - Once your cursor is in editor, it types code automatically with human cadence.\n"
+            "#    - Press [ESC] at any moment to cancel instantly.\n"
+        ))
+
+        bot_bar = ctk.CTkFrame(self.code_frame, fg_color="transparent")
+        bot_bar.pack(fill="x", pady=(4, 0))
+
+        HackerButton(bot_bar, "⚡ WRITE CODE AT CURSOR (WAIT FOR CLICK)", self._manual_arm_cursor_writing,
+                     height=32, width=280, color="#008F11", hover="#00FF41", text_col="#000000",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=2)
+
+        HackerButton(bot_bar, "📋 COPY CODE", self._copy_code_text,
+                     height=32, width=120, color="#0f260f", hover="#008F11", text_col="#00FF41",
+                     font=("Consolas", 10, "bold")).pack(side="left", padx=6)
+
+    def _set_code_status(self, text, color="#00FF41"):
+        def _ui():
+            self.lbl_code_status.configure(text=text, text_color=color)
+        self.after(0, _ui)
+
+    def _copy_code_text(self):
+        txt = self.code_preview_box.get("1.0", "end").strip()
+        if txt:
+            self.clipboard_clear()
+            self.clipboard_append(txt)
+            self._set_code_status("📋 Copied code to clipboard!", color="#00FF41")
+
+    def _manual_arm_cursor_writing(self):
+        code = self.code_preview_box.get("1.0", "end").strip()
+        if code and not code.startswith("# ── AUTONOMOUS"):
+            self._arm_cursor_injection(code)
+        else:
+            self._set_code_status("❌ NO CODE READY. Please capture and solve a problem first.", color="#ff4444")
+
+    # ── CAPTURE & PIPELINE DISPATCHERS ───────────────────────────────────────
+    def _on_capture_full(self, mode="MCQ"):
+        if self.is_processing or self.is_typing: return
+        self.withdraw()
+        time.sleep(0.18)
+        try:
+            img = ImageGrab.grab()
+        finally:
+            self.deiconify()
+
+        if img:
+            if mode == "MCQ":
+                threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
+            else:
+                threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+
+    def _on_snip(self, mode="MCQ"):
+        if self.is_processing or self.is_typing: return
+        self.withdraw()
+        time.sleep(0.15)
+
+        def _on_snip_done(img):
+            self.deiconify()
+            if img:
+                if mode == "MCQ":
+                    threading.Thread(target=self._process_mcq_image, args=(img,), daemon=True).start()
+                else:
+                    threading.Thread(target=self._process_code_image, args=(img,), daemon=True).start()
+
+        def _on_snip_cancel():
+            self.deiconify()
+
+        ScreenSnipper(_on_snip_done, on_cancel_callback=_on_snip_cancel)
+
+    def _process_mcq_image(self, img):
+        self.is_processing = True
+        self._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+        try:
+            resp = self.app.backend.solve_smart_interviews_mcq(img)
+            def _ui():
+                self.mcq_result_box.delete("1.0", "end")
+                self.mcq_result_box.insert("end", resp)
+                self._set_mcq_status("✅ SOLVED! Correct answer highlighted below:", color="#00FF41")
+                self.is_processing = False
+            self.after(0, _ui)
+        except Exception as ex:
+            def _err():
+                self._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                self.is_processing = False
+            self.after(0, _err)
+
+    def _process_code_image(self, img):
+        self.is_processing = True
+        lang = self.code_lang_var.get()
+        self._set_code_status(f"🧠 Gemini 2.5 Flash synthesizing optimal {lang} solution...", color="#FFD700")
+        try:
+            code = self.app.backend.solve_smart_interviews_code(img, lang=lang)
+            def _ui():
+                self.code_preview_box.delete("1.0", "end")
+                self.code_preview_box.insert("end", code)
+                self.is_processing = False
+                # Automatically arm cursor injection as requested by user!
+                self._arm_cursor_injection(code)
+            self.after(0, _ui)
+        except Exception as ex:
+            def _err():
+                self._set_code_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                self.is_processing = False
+            self.after(0, _err)
+
+    # ── SMART CURSOR DETECTION & TYPING ENGINE ───────────────────────────────
+    def _arm_cursor_injection(self, code):
+        """
+        Arms the cursor detector.
+        Waits for the user to click into their code editor window.
+        WITHOUT putting the cursor in the editor, it will NOT write!
+        """
+        if not code or not code.strip():
+            self._set_code_status("❌ NO CODE TO WRITE. Capture a problem first.", color="#ff4444")
+            return
+
+        self.generated_code = code
+        self.is_waiting_for_cursor = True
+        self.is_typing = False
+        self.abort_flag = False
+
+        self._set_code_status(
+            "🟡 WAITING FOR CURSOR: Click inside your code editor now!\n"
+            "⚠️ Code will NOT write until you place cursor in the editor. (Press ESC to cancel)",
+            color="#FFD700"
+        )
+
+        threading.Thread(target=self._cursor_wait_and_type_thread, args=(code,), daemon=True).start()
+
+    def _cursor_wait_and_type_thread(self, code):
+        click_event = threading.Event()
+
+        def on_click(x, y, button, pressed):
+            if pressed:
+                # Check if click was inside our own popup window
+                try:
+                    wx = self.winfo_rootx()
+                    wy = self.winfo_rooty()
+                    ww = self.winfo_width()
+                    wh = self.winfo_height()
+                    if wx <= x <= wx + ww and wy <= y <= wy + wh:
+                        # Click was inside popup window, ignore
+                        return
+                except Exception:
+                    pass
+
+                # Click was outside popup window -> User placed cursor in code editor!
+                click_event.set()
+                return False  # stop mouse listener
+
+        try:
+            m_listener = mouse.Listener(on_click=on_click)
+            m_listener.daemon = True
+            m_listener.start()
+        except Exception as e:
+            self._set_code_status(f"❌ MOUSE HOOK ERROR: {e}", color="#ff4444")
+            self.is_waiting_for_cursor = False
+            return
+
+        # Wait for user to place cursor inside the editor
+        while not click_event.is_set():
+            if self.abort_flag:
+                try: m_listener.stop()
+                except Exception: pass
+                self._set_code_status("🛑 CANCELED: Cursor wait aborted by user (ESC).", color="#ff5555")
+                self.is_waiting_for_cursor = False
+                return
+            time.sleep(0.04)
+
+        try:
+            m_listener.stop()
+        except Exception:
+            pass
+
+        if self.abort_flag:
+            self.is_waiting_for_cursor = False
+            return
+
+        # Cursor placement detected!
+        self.is_waiting_for_cursor = False
+        self.is_typing = True
+
+        self._set_code_status("🟢 CURSOR DETECTED IN EDITOR! Preparing injection...", color="#00FF41")
+        time.sleep(0.35)  # Allow target editor window to acquire complete OS focus
+
+        if self.abort_flag:
+            self.is_typing = False
+            self._set_code_status("🛑 ABORTED BEFORE WRITING.", color="#ff5555")
+            return
+
+        # Clear existing boilerplate if selected
+        if self.clear_editor_var.get():
+            self._set_code_status("🟢 CLEARING BOILERPLATE (Ctrl+A + Backspace)...", color="#00FF41")
+            self.app.keyboard.press(Key.ctrl); self.app.keyboard.press("a")
+            self.app.keyboard.release("a"); self.app.keyboard.release(Key.ctrl)
+            time.sleep(0.12)
+            self.app.keyboard.press(Key.backspace); self.app.keyboard.release(Key.backspace)
+            time.sleep(0.25)
+
+        # Write code with human cadence and anti-cheat typo simulation
+        self._set_code_status("🟢 INJECTING CODE INTO EDITOR... (Press ESC to cancel)", color="#00FF41")
+        self._type_code_into_active_editor(code)
+
+        self.is_typing = False
+        if not self.abort_flag:
+            self._set_code_status("✅ CODE WRITTEN SUCCESSFULLY IN EDITOR!", color="#00FF41")
+        else:
+            self._set_code_status("🛑 TYPING STOPPED BY USER (ESC).", color="#ff5555")
+
+    def _type_code_into_active_editor(self, code):
+        lines = code.splitlines()
+        char_min, char_max = 0.012, 0.035
+        line_delay = 0.12
+        sim_typos = self.typo_sim_var.get()
+
+        for idx, line in enumerate(lines):
+            if self.abort_flag: break
+            for ch in line:
+                if self.abort_flag: break
+
+                # Anti-detection typo simulation
+                if sim_typos and ch.lower() in TYPO_ADJACENT and random.random() < 0.012:
+                    wrong_ch = TYPO_ADJACENT[ch.lower()]
+                    self.app.keyboard.type(wrong_ch)
+                    time.sleep(random.uniform(0.10, 0.18))
+                    self.app.keyboard.press(Key.backspace)
+                    self.app.keyboard.release(Key.backspace)
+                    time.sleep(random.uniform(0.04, 0.07))
+
+                self.app.keyboard.type(ch)
+                if ch in "([{\"'":
+                    self.app.keyboard.press(Key.delete)
+                    self.app.keyboard.release(Key.delete)
+                time.sleep(random.uniform(char_min, char_max))
+
+            if idx < len(lines) - 1 and not self.abort_flag:
+                self.app.keyboard.press(Key.enter)
+                self.app.keyboard.release(Key.enter)
+                time.sleep(line_delay)
+
+    def _abort_operation(self):
+        self.abort_flag = True
+        self.is_waiting_for_cursor = False
+        self.is_typing = False
+        self.is_processing = False
+        self._set_code_status("🛑 OPERATION ABORTED BY USER (ESC).", color="#ff5555")
+        self._set_mcq_status("🛑 OPERATION ABORTED BY USER (ESC).", color="#ff5555")
+
+    def _on_close(self):
+        self._abort_operation()
+        if self.emergency_kb_listener:
+            try: self.emergency_kb_listener.stop()
+            except Exception: pass
+            self.emergency_kb_listener = None
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        if hasattr(self.app, "si_popup"):
+            self.app.si_popup = None
 # ── SYNTAX & TYPO ENGINE HELPERS ─────────────────────────────────────────────
 TYPO_ADJACENT = {
     'a': 's', 'b': 'v', 'c': 'x', 'd': 's', 'e': 'w', 'f': 'd', 'g': 'f',
@@ -3593,6 +4192,7 @@ class AutoCoderApp(ctk.CTk):
     def _refresh_admin_target_options(self):
         base_options = [
             "ALL USERS (Entire Campus)",
+            "ADMIN ONLY",
             "BRANCH: DATA SCIENCE (DS)",
             "BRANCH: COMPUTER SCIENCE (CSE)",
             "BRANCH: ARTIFICIAL INTELLIGENCE (AIML)",
@@ -3798,18 +4398,26 @@ class AutoCoderApp(ctk.CTk):
 
     def _is_user_eligible_for_broadcast(self, target_audience):
         """Verify whether current user is within the target audience for update notification."""
-        # Admin always sees all updates
-        if self.session.get("role") == "admin":
+        aud_str = str(target_audience or "").strip().upper()
+        is_admin = (self.session.get("role") == "admin")
+
+        # Admin always sees all releases
+        if is_admin:
             return True
-        if not target_audience or "ALL" in str(target_audience).upper():
+
+        # Non-admin users are strictly blocked from ADMIN ONLY updates
+        if "ADMIN" in aud_str:
+            return False
+
+        if not target_audience or "ALL" in aud_str or aud_str == "PUBLIC":
             return True
 
         user_branch = str(self.session.get("branch", "")).strip().upper()
         user_roll = str(self.session.get("roll", "")).strip().upper()
 
-        if str(target_audience).startswith("BRANCH:"):
+        if aud_str.startswith("BRANCH:"):
             # e.g. "BRANCH: DATA SCIENCE (DS)"
-            b_target = target_audience.split("BRANCH:")[-1].strip().upper()
+            b_target = aud_str.split("BRANCH:")[-1].strip().upper()
             if "(" in b_target and ")" in b_target:
                 b_code = b_target[b_target.find("(")+1:b_target.find(")")].strip()
             else:
@@ -3822,8 +4430,8 @@ class AutoCoderApp(ctk.CTk):
                 return True
             return False
 
-        if str(target_audience).startswith("GROUP:"):
-            grp_name = target_audience.split("GROUP:")[-1].strip()
+        if aud_str.startswith("GROUP:"):
+            grp_name = str(target_audience).split("GROUP:")[-1].strip()
             try:
                 grp_data = _firebase_request(f"/user_groups/{_safe_key(grp_name)}")
                 if isinstance(grp_data, dict):
@@ -3840,7 +4448,7 @@ class AutoCoderApp(ctk.CTk):
                 pass
             return False
 
-        return True
+        return False
 
     def _check_and_display_broadcast(self):
         try:
@@ -3993,13 +4601,16 @@ class AutoCoderApp(ctk.CTk):
         self.frames["MANUAL_OVERRIDE"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_manual_tab(self.frames["MANUAL_OVERRIDE"])
 
-        # Admin-Only Tabs: Live Monitor & DB Admin
+        # Admin-Only Tabs: Live Monitor, DB Admin & Smart Interviews Test
         if self.session.get("role") == "admin":
             self.frames["LIVE_MONITOR"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_live_monitor_tab(self.frames["LIVE_MONITOR"])
 
             self.frames["DB_ADMIN"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_admin_tab(self.frames["DB_ADMIN"])
+
+            self.frames["SMART_INTERVIEWS"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
+            self._build_smart_interviews_tab(self.frames["SMART_INTERVIEWS"])
 
         self.frames["SYSTEM_INFO"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_profile_tab(self.frames["SYSTEM_INFO"])
@@ -4016,6 +4627,7 @@ class AutoCoderApp(ctk.CTk):
         if self.session.get("role") == "admin":
             self._create_nav_button("LIVE USERS [●]", "LIVE_MONITOR")
             self._create_nav_button("DB ADMIN", "DB_ADMIN")
+            self._create_nav_button("⚡ SMART INTERVIEWS TEST", "SMART_INTERVIEWS")
         self._create_nav_button("PROFILE & SECURITY", "SYSTEM_INFO")
         self._create_nav_button("⚡ UPDATE CENTER", "UPDATE_CENTER")
 
@@ -4600,6 +5212,7 @@ class AutoCoderApp(ctk.CTk):
             b_grid, variable=self.admin_target_audience_var,
             values=[
                 "ALL USERS (Entire Campus)",
+                "ADMIN ONLY",
                 "BRANCH: DATA SCIENCE (DS)",
                 "BRANCH: COMPUTER SCIENCE (CSE)",
                 "BRANCH: ARTIFICIAL INTELLIGENCE (AIML)",
@@ -4819,6 +5432,184 @@ class AutoCoderApp(ctk.CTk):
             self._refresh_admin_tree()
             self.edt_roll.delete(0,"end"); self.edt_name.delete(0,"end"); self.edt_branch.delete(0,"end"); self.edt_pw.delete(0,"end")
             self.update_status(f"[-] Deleted user {roll} from Firebase Cloud")
+
+    # ── SMART INTERVIEWS TEST SUITE (v4.0 EXCLUSIVE) ─────────────────────────
+    def _open_smart_interviews_popup(self):
+        """Open or refocus the Smart Interviews Popup Window."""
+        if not hasattr(self, "si_popup") or not self.si_popup or not self.si_popup.winfo_exists():
+            self.si_popup = SmartInterviewsPopup(self)
+        else:
+            self.si_popup.deiconify()
+            self.si_popup.lift()
+            self.si_popup.focus_force()
+        self.update_status("[+] SMART INTERVIEWS POPUP WINDOW ACTIVATED.")
+
+    def _build_smart_interviews_tab(self, p):
+        # Scrollable container for tab contents
+        scroll = ctk.CTkScrollableFrame(p, fg_color="transparent")
+        scroll.pack(fill="both", expand=True)
+
+        # 1. Header Card
+        h_card = HackerCard(scroll)
+        h_card.pack(fill="x", padx=15, pady=(10, 8))
+
+        top_h = ctk.CTkFrame(h_card, fg_color="transparent")
+        top_h.pack(fill="x", padx=20, pady=(14, 4))
+        ctk.CTkLabel(top_h, text="⚡ SMART INTERVIEWS TEST SUITE", font=FH1, text_color=NEON_GREEN, anchor="w").pack(side="left")
+        ctk.CTkLabel(top_h, text="[ v4.0 ADMIN EXCLUSIVE ]", font=FB, text_color=BG, fg_color=NEON_GREEN, corner_radius=4, padx=8, pady=2).pack(side="right")
+
+        ctk.CTkLabel(
+            h_card,
+            text="Autonomous Assessment Proctor • Smart MCQ Vision Solver & AI Code Writer with Smart Cursor Detection",
+            font=FM, text_color=MUTED, anchor="w"
+        ).pack(fill="x", padx=20, pady=(0, 14))
+
+        # 2. API Key Configuration & Live Verification Card
+        api_card = HackerCard(scroll)
+        api_card.pack(fill="x", padx=15, pady=8)
+
+        ctk.CTkLabel(api_card, text="🔑 GEMINI API KEY SETUP & VERIFICATION", font=FH2, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(14, 4))
+        ctk.CTkLabel(
+            api_card,
+            text="Add your Gemini API key from Google AI Studio. The system tests the key against Google Cloud to verify live readiness.\nOnce verified, setup is completed and the Smart Interviews Popup Window opens automatically.",
+            font=FS, text_color=MUTED, justify="left", anchor="w"
+        ).pack(fill="x", padx=20, pady=(0, 10))
+
+        # Action Buttons row: Google AI Studio link & clipboard paste
+        link_row = ctk.CTkFrame(api_card, fg_color="transparent")
+        link_row.pack(fill="x", padx=20, pady=(0, 8))
+
+        def _open_ai_studio():
+            import webbrowser
+            webbrowser.open("https://aistudio.google.com/app/apikey")
+
+        HackerButton(link_row, "🌐 GET FREE API KEY (Google AI Studio)", _open_ai_studio,
+                     height=28, width=240, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 10))
+
+        def _paste_clipboard():
+            try:
+                clip = self.clipboard_get().strip()
+                if clip:
+                    self.si_api_entry.delete(0, "end")
+                    self.si_api_entry.insert(0, clip)
+            except Exception:
+                pass
+
+        HackerButton(link_row, "📋 PASTE FROM CLIPBOARD", _paste_clipboard,
+                     height=28, width=170, color=SURFACE, hover=BORDER_LT, text_col=TEXT, font=FS).pack(side="left")
+
+        # Entry Row
+        entry_row = ctk.CTkFrame(api_card, fg_color="transparent")
+        entry_row.pack(fill="x", padx=20, pady=(0, 8))
+
+        self.si_api_show_var = ctk.BooleanVar(value=False)
+        self.si_api_entry = HackerEntry(entry_row, placeholder="Paste Gemini API Key (e.g. AIzaSy... or AQ.Ab8RN6I...)", show="•")
+        self.si_api_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        cur_key = self.session.get("api_key", "")
+        if cur_key:
+            self.si_api_entry.insert(0, cur_key)
+
+        def _toggle_api_visibility():
+            if self.si_api_show_var.get():
+                self.si_api_show_var.set(False)
+                self.si_api_entry.configure(show="•")
+                self.btn_si_eye.configure(text="👁️ SHOW")
+            else:
+                self.si_api_show_var.set(True)
+                self.si_api_entry.configure(show="")
+                self.btn_si_eye.configure(text="🔒 HIDE")
+
+        self.btn_si_eye = HackerButton(entry_row, "👁️ SHOW", _toggle_api_visibility,
+                                       height=38, width=80, color=SURFACE, text_col=MUTED, font=FS)
+        self.btn_si_eye.pack(side="left", padx=(0, 8))
+
+        self.btn_si_test = HackerButton(entry_row, "⚡ TEST & COMPLETE SETUP", self._test_and_complete_si_setup,
+                                        height=38, width=220, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB)
+        self.btn_si_test.pack(side="left")
+
+        # Live Status Banner for API
+        self.si_api_status_card = ctk.CTkFrame(api_card, fg_color=CARD, border_width=1, border_color=BORDER, corner_radius=4)
+        self.si_api_status_card.pack(fill="x", padx=20, pady=(0, 14))
+
+        init_status = "🟢 API KEY PRESENT: Click 'TEST & COMPLETE SETUP' to verify & launch." if cur_key else "⚪ NO API KEY CONFIGURED: Paste your key above and click 'TEST & COMPLETE SETUP'."
+        init_col = NEON_GREEN if cur_key else MUTED
+        self.si_api_status = ctk.CTkLabel(
+            self.si_api_status_card, text=init_status,
+            font=FM, text_color=init_col, anchor="w"
+        )
+        self.si_api_status.pack(fill="x", padx=12, pady=8)
+
+        # 3. Popup Launcher Card
+        ctl_card = HackerCard(scroll)
+        ctl_card.pack(fill="x", padx=15, pady=8)
+
+        ctk.CTkLabel(ctl_card, text="🚀 SMART INTERVIEWS POPUP CONTROLLER", font=FH2, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(14, 4))
+        ctk.CTkLabel(
+            ctl_card,
+            text="Launch the lightweight floating HUD window that stays on top during tests.\nSwitch between Multiple Choice (MCQ) answers and Autonomous AI Code Writing at any time.",
+            font=FS, text_color=MUTED, justify="left", anchor="w"
+        ).pack(fill="x", padx=20, pady=(0, 12))
+
+        c_btn_row = ctk.CTkFrame(ctl_card, fg_color="transparent")
+        c_btn_row.pack(fill="x", padx=20, pady=(0, 14))
+
+        HackerButton(c_btn_row, "🚀 LAUNCH SMART INTERVIEWS POPUP WINDOW", self._open_smart_interviews_popup,
+                     height=42, width=320, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(side="left", padx=(0, 12))
+
+        # 4. Feature Architecture Guide
+        guide_card = HackerCard(scroll)
+        guide_card.pack(fill="x", padx=15, pady=(8, 20))
+
+        ctk.CTkLabel(guide_card, text="📖 HOW TO USE SMART INTERVIEWS TEST v4.0", font=FH2, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(14, 6))
+
+        guide_text = (
+            "• 📝 MODE 1 - MULTIPLE CHOICE QUESTIONS (MCQ) SOLVER:\n"
+            "  1. In the popup window, click '📸 CAPTURE FULL SCREEN' or '✂️ SNIP QUESTION'.\n"
+            "  2. Gemini 2.5 Flash analyzes question title, choices (A, B, C, D), and outputs the exact CORRECT ANSWER.\n"
+            "  3. Correct option is highlighted in high-contrast neon green with a crisp 1-2 sentence explanation.\n\n"
+            "• 💻 MODE 2 - AUTONOMOUS AI CODE WRITER (WITH SMART CURSOR DETECTION):\n"
+            "  1. Click '🔀 SWITCH TO AI CODE WRITER' at the top of the popup window.\n"
+            "  2. Select your target language (Python 3, Java, C++, C, JavaScript, or Auto-Detect).\n"
+            "  3. Click '📸 CAPTURE & SOLVE CODE' or '✂️ SNIP PROBLEM REGION'.\n"
+            "  4. ⚠️ SMART CURSOR FOCUS: The engine generates code and enters 'WAITING FOR CURSOR' state.\n"
+            "  5. Without putting your cursor inside the editor, it will NOT write anything!\n"
+            "  6. Place your cursor inside the browser code editor (click in editor) -> the engine detects the click and types code automatically with human anti-cheat cadence!\n"
+            "  7. Emergency stop: Press [ESC] at any time to cancel instantly."
+        )
+        ctk.CTkLabel(guide_card, text=guide_text, font=FS, text_color=TEXT, justify="left", anchor="w").pack(fill="x", padx=20, pady=(0, 15))
+
+    def _test_and_complete_si_setup(self):
+        k = self.si_api_entry.get().strip() if hasattr(self, "si_api_entry") else ""
+        if not k:
+            self.si_api_status.configure(text="❌ API Key cannot be empty. Please paste your Gemini API key.", text_color=DANGER)
+            return
+
+        self.btn_si_test.configure(state="disabled")
+        self.si_api_status.configure(text="🟡 TESTING API KEY WITH GOOGLE GEMINI CLOUD...", text_color="#FFD700")
+
+        def _task():
+            ok, msg = validate_gemini_api_key(k)
+            def _ui():
+                self.btn_si_test.configure(state="normal")
+                if ok:
+                    self.session["api_key"] = k
+                    save_session(self.session)
+                    self.backend = AntigravityBackend(k)
+                    self.si_api_status.configure(
+                        text="✅ SETUP COMPLETED! Gemini API is active & verified. (Popup window opened!)",
+                        text_color=NEON_GREEN
+                    )
+                    self.update_status("[+] GEMINI API VALIDATED & SETUP COMPLETED.")
+                    # Automatically open the Smart Interviews popup window
+                    self.after(200, self._open_smart_interviews_popup)
+                else:
+                    self.si_api_status.configure(
+                        text=f"❌ VALIDATION FAILED: {msg}",
+                        text_color=DANGER
+                    )
+            self.after(0, _ui)
+        threading.Thread(target=_task, daemon=True).start()
 
     # ── PROFILE & SECURITY TAB ───────────────────────────────────────────────
     def _build_profile_tab(self, p):
@@ -5189,8 +5980,13 @@ class AutoCoderApp(ctk.CTk):
             info = get_system_update_info()
             bc = _firebase_request("/system_broadcast")
             if isinstance(bc, dict) and bc.get("version"):
-                latest_v = bc.get("version")
-                changelog = bc.get("message") or info.get("changelog", "")
+                target_aud = bc.get("target_audience", "ALL USERS")
+                if self._is_user_eligible_for_broadcast(target_aud):
+                    latest_v = bc.get("version")
+                    changelog = bc.get("message") or info.get("changelog", "")
+                else:
+                    latest_v = info.get("latest_version", APP_VERSION)
+                    changelog = info.get("changelog", "")
             else:
                 latest_v = info.get("latest_version", APP_VERSION)
                 changelog = info.get("changelog", "")

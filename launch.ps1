@@ -1,6 +1,6 @@
-# AGENT PRAYATH v3.9 - PowerShell Launcher
+# AGENT PRAYATH v4.0 - PowerShell Launcher
 Write-Host "==========================================" -ForegroundColor Green
-Write-Host "       AGENT PRAYATH v3.9 - LAUNCHER      " -ForegroundColor Green
+Write-Host "       AGENT PRAYATH v4.0 - LAUNCHER      " -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "[*] Checking Python environment..." -ForegroundColor Yellow
 

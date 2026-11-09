@@ -1,5 +1,5 @@
 @echo off
-title AGENT PRAYATH v3.9 - STUDENT ULTIMATE EDITION
+title AGENT PRAYATH v4.0 - MASTER EDITION
 cd /d "%~dp0"
 echo [*] Launching Agent Prayath (Automatic Code Editor)...
 python vision_agent.py
