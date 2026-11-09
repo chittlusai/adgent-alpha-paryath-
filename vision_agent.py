@@ -569,9 +569,12 @@ class AntigravityBackend:
     def _generate_with_fallback(self, contents, config):
         models_to_try = [
             "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
             "gemini-flash-latest",
             "gemini-2.5-flash-lite",
-            "gemini-3.8-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-pro",
             "gemini-2.5-pro",
             "gemini-pro-latest"
         ]
@@ -584,7 +587,7 @@ class AntigravityBackend:
             except Exception as e:
                 last_err = e
                 err_str = str(e)
-                # Auto-failover on 404, 503, 429 RESOURCE_EXHAUSTED / quota limits so test answers never get blocked!
+                # Auto-failover on 404 NOT_FOUND, 503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED / quota limits so test answers never get blocked!
                 if any(x in err_str for x in ["404", "NOT_FOUND", "503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "quota"]):
                     continue
                 raise e
@@ -1170,28 +1173,30 @@ def validate_gemini_api_key(api_key: str):
         return False, "API key cannot be empty. Please paste your Gemini API key from Google AI Studio."
 
     if _genai:
+        test_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
         try:
             client = _genai.Client(api_key=key)
-            # Live test with modern active model
-            r = client.models.generate_content(model="gemini-2.5-flash", contents="Test uplink")
-            if r and r.text:
-                return True, "API Key is valid and active! (Connected to Gemini 2.5 Flash)"
-        except Exception as ge:
-            err_str = str(ge)
-            if "API_KEY_INVALID" in err_str or "400" in err_str:
-                return False, f"Invalid API Key (HTTP 400). Google returned:\n{err_str}"
-            elif "403" in err_str or "PERMISSION_DENIED" in err_str:
-                return False, f"Permission Denied (HTTP 403). Ensure Generative Language API is enabled in your Google Cloud Project."
-            elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                return True, "API Key is valid! (Rate limit 429 reached, quota will reset in ~60s)."
-            elif "404" in err_str or "NOT_FOUND" in err_str:
-                # Try fallback model
+            last_err_str = ""
+            for m in test_models:
                 try:
-                    r2 = client.models.generate_content(model="gemini-flash-latest", contents="Test")
-                    if r2: return True, "API Key is valid! (Connected to Gemini Flash Latest)"
-                except Exception:
-                    pass
-            return False, f"Gemini Cloud Error:\n{err_str}"
+                    r = client.models.generate_content(model=m, contents="Test uplink")
+                    if r and r.text:
+                        return True, f"API Key is valid and active! (Connected to {m})"
+                except Exception as ge:
+                    err_str = str(ge)
+                    last_err_str = err_str
+                    if "API_KEY_INVALID" in err_str or "400" in err_str:
+                        return False, f"Invalid API Key (HTTP 400). Google returned:\n{err_str}"
+                    elif "403" in err_str or "PERMISSION_DENIED" in err_str:
+                        return False, f"Permission Denied (HTTP 403). Ensure Generative Language API is enabled in your Google Cloud Project."
+                    elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        return True, f"API Key is valid! (Rate limit 429 reached on {m}, quota will reset shortly)."
+                    elif "404" in err_str or "NOT_FOUND" in err_str:
+                        # 404 means this model alias isn't in this project; auto-failover to next model
+                        continue
+                    continue
+        except Exception:
+            pass
 
     # REST Fallback check
     try:
