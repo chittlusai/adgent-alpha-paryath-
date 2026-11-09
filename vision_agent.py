@@ -106,109 +106,17 @@ from PIL import ImageGrab, Image
 import ctypes
 from ctypes import wintypes
 
-# ── High-Performance Native Win32 Screen Capture Engine ─────────────────────
-# Replaces PIL ImageGrab.grab which fails with 'OSError: screen grab failed' on Win 11
-_orig_imagegrab_grab = ImageGrab.grab
-
-def robust_screen_capture(bbox=None, all_screens=True, **kwargs):
+def robust_screen_capture(bbox=None):
     """
-    Capture full screen or specific bounding box using direct Win32 GDI BitBlt.
-    100% reliable across all Windows 10/11 versions and DPI scaling configurations.
+    Standard high-fidelity screen capture.
     """
     try:
-        user32 = ctypes.windll.user32
-        gdi32 = ctypes.windll.gdi32
-
+        return ImageGrab.grab(bbox=bbox)
+    except Exception:
         try:
-            user32.SetProcessDPIAware()
-        except Exception:
-            pass
-
-        hdesktop = user32.GetDesktopWindow()
-        hdc_screen = user32.GetDC(hdesktop)
-        if not hdc_screen:
-            raise RuntimeError("Failed to acquire screen device context.")
-
-        try:
-            left = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
-            top = user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
-            width = user32.GetSystemMetrics(78) # SM_CXVIRTUALSCREEN
-            height = user32.GetSystemMetrics(79)# SM_CYVIRTUALSCREEN
-
-            if width <= 0 or height <= 0:
-                width = user32.GetSystemMetrics(0) # SM_CXSCREEN
-                height = user32.GetSystemMetrics(1) # SM_CYSCREEN
-                left, top = 0, 0
-
-            if bbox:
-                bx1, by1, bx2, by2 = bbox
-                left = max(left, int(bx1))
-                top = max(top, int(by1))
-                width = max(1, int(bx2 - bx1))
-                height = max(1, int(by2 - by1))
-
-            hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
-            if not hdc_mem:
-                raise RuntimeError("Failed to create compatible memory DC.")
-
-            try:
-                hbm = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
-                if not hbm:
-                    raise RuntimeError("Failed to create compatible bitmap.")
-
-                try:
-                    hold = gdi32.SelectObject(hdc_mem, hbm)
-                    # SRCCOPY | CAPTUREBLT (0x00CC0020 | 0x40000000)
-                    rop = 0x00CC0020 | 0x40000000
-                    res = gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, left, top, rop)
-                    if not res:
-                        gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, left, top, 0x00CC0020)
-
-                    class BITMAPINFOHEADER(ctypes.Structure):
-                        _fields_ = [
-                            ('biSize', wintypes.DWORD),
-                            ('biWidth', wintypes.LONG),
-                            ('biHeight', wintypes.LONG),
-                            ('biPlanes', wintypes.WORD),
-                            ('biBitCount', wintypes.WORD),
-                            ('biCompression', wintypes.DWORD),
-                            ('biSizeImage', wintypes.DWORD),
-                            ('biXPelsPerMeter', wintypes.LONG),
-                            ('biYPelsPerMeter', wintypes.LONG),
-                            ('biClrUsed', wintypes.DWORD),
-                            ('biClrImportant', wintypes.DWORD)
-                        ]
-
-                    bmi = BITMAPINFOHEADER()
-                    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-                    bmi.biWidth = width
-                    bmi.biHeight = -height  # top-down DIB
-                    bmi.biPlanes = 1
-                    bmi.biBitCount = 32
-                    bmi.biCompression = 0
-
-                    buf_size = width * height * 4
-                    buf = (ctypes.c_char * buf_size)()
-                    gdi32.GetDIBits(hdc_mem, hbm, 0, height, ctypes.byref(buf), ctypes.byref(bmi), 0)
-
-                    gdi32.SelectObject(hdc_mem, hold)
-                    img = Image.frombuffer('RGBA', (width, height), buf, 'raw', 'BGRA', 0, 1).convert('RGB')
-                    return img
-                finally:
-                    gdi32.DeleteObject(hbm)
-            finally:
-                gdi32.DeleteDC(hdc_mem)
-        finally:
-            user32.ReleaseDC(hdesktop, hdc_screen)
-    except Exception as e:
-        # Fallback to standard ImageGrab if Win32 GDI fails
-        try:
-            return _orig_imagegrab_grab(bbox=bbox)
-        except Exception:
+            return ImageGrab.grab(bbox=bbox, all_screens=True)
+        except Exception as e:
             raise e
-
-# Patch ImageGrab.grab globally across entire application
-ImageGrab.grab = robust_screen_capture
 
 try:
     from google import genai as _genai
@@ -3011,30 +2919,30 @@ class TinyMCQWindow(ctk.CTkToplevel):
         self.is_details_open = False
 
         # ── 1. TITLE BAR (Draggable) ─────────────────────────────────────────
-        top_bar = ctk.CTkFrame(self, fg_color="#081408", height=32, corner_radius=0)
-        top_bar.pack(fill="x", side="top")
-        top_bar.bind("<ButtonPress-1>", self._start_move)
-        top_bar.bind("<B1-Motion>", self._do_move)
+        self.top_bar = ctk.CTkFrame(self, fg_color="#081408", height=32, corner_radius=0)
+        self.top_bar.pack(fill="x", side="top")
+        self.top_bar.bind("<ButtonPress-1>", self._start_move)
+        self.top_bar.bind("<B1-Motion>", self._do_move)
 
-        lbl_title = ctk.CTkLabel(top_bar, text="⚡ MCQ HUD", font=("Consolas", 10, "bold"), text_color="#00FF41")
+        lbl_title = ctk.CTkLabel(self.top_bar, text="⚡ MCQ HUD", font=("Consolas", 10, "bold"), text_color="#00FF41")
         lbl_title.pack(side="left", padx=8)
         lbl_title.bind("<ButtonPress-1>", self._start_move)
         lbl_title.bind("<B1-Motion>", self._do_move)
 
         # Quick Actions in Top Bar
-        HackerButton(top_bar, "📸 SNAP", lambda: self._trigger_capture("SNAP"),
+        HackerButton(self.top_bar, "📸 SNAP", lambda: self._trigger_capture("SNAP"),
                      height=22, width=54, color="#0f260f", hover="#008F11", text_col="#00FF41", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
 
-        HackerButton(top_bar, "🎥 3s CLIP", lambda: self._trigger_capture("CLIP"),
+        HackerButton(self.top_bar, "🎥 3s CLIP", lambda: self._trigger_capture("CLIP"),
                      height=22, width=64, color="#1f538d", hover="#3a7ebf", text_col="#ffffff", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
 
-        HackerButton(top_bar, "✂️ SNIP", lambda: self._trigger_capture("SNIP"),
+        HackerButton(self.top_bar, "✂️ SNIP", lambda: self._trigger_capture("SNIP"),
                      height=22, width=54, color="#0f260f", hover="#008F11", text_col="#00FF41", font=("Consolas", 9, "bold")).pack(side="left", padx=2)
 
-        HackerButton(top_bar, "✕", self._on_close,
+        HackerButton(self.top_bar, "✕", self._on_close,
                      height=20, width=24, color="#330000", hover="#ff003c", text_col="#ffffff", font=("Consolas", 9, "bold")).pack(side="right", padx=6)
 
-        # ── 2. BUFFERING & THINKING ANIMATION CONTAINER ──────────────────────
+        # ── 2. BUFFERING CONTAINER (Initially unpacked) ──────────────────────
         self.anim_frame_container = ctk.CTkFrame(self, fg_color="#050e05", corner_radius=4)
         self.lbl_buffer_anim = ctk.CTkLabel(
             self.anim_frame_container,
@@ -3049,25 +2957,25 @@ class TinyMCQWindow(ctk.CTkToplevel):
         self.buffer_prog_bar.set(0.0)
         self.buffer_prog_bar.pack(fill="x", padx=10, pady=(2, 6))
 
-        # ── 3. ANSWERS DISPLAY CONTAINER (Shows only ABCD & numbers) ─────────
-        self.answers_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.answers_container.pack(fill="both", expand=True, padx=4, pady=2)
-
-        # Initial placeholder
-        self._render_placeholder()
-
-        # ── 4. FOOTER WITH STATUS & DETAILS TOGGLE ───────────────────────────
-        self.footer = ctk.CTkFrame(self, fg_color="transparent", height=22)
+        # ── 3. FOOTER (PACKED FIRST AT BOTTOM TO ALWAYS BE VISIBLE) ──────────
+        self.footer = ctk.CTkFrame(self, fg_color="#040b04", height=24)
         self.footer.pack(fill="x", side="bottom", padx=4, pady=2)
 
         self.lbl_status_tiny = ctk.CTkLabel(self.footer, text="Ready • Click 📸 or 🎥 3s", font=("Consolas", 8), text_color="#00aa22")
-        self.lbl_status_tiny.pack(side="left", padx=4)
+        self.lbl_status_tiny.pack(side="left", padx=6)
 
         self.btn_toggle_details = HackerButton(
             self.footer, "Details ▼", self._toggle_details,
             height=18, width=65, color="#071207", hover="#008F11", text_col="#00FF41", font=("Consolas", 8)
         )
         self.btn_toggle_details.pack(side="right", padx=4)
+
+        # ── 4. ANSWERS DISPLAY CONTAINER (Fills remaining space) ─────────────
+        self.answers_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.answers_container.pack(fill="both", expand=True, padx=4, pady=2)
+
+        # Initial placeholder
+        self._render_placeholder()
 
     def _start_move(self, event):
         self.start_x = event.x
@@ -3095,7 +3003,11 @@ class TinyMCQWindow(ctk.CTkToplevel):
         self.buffer_msg = message
         self.anim_frame = 0
         self.anim_pos = 0.0
-        self.anim_frame_container.pack(fill="x", padx=6, pady=4, before=self.answers_container)
+        try:
+            self.anim_frame_container.pack(fill="x", padx=6, pady=2, after=self.top_bar)
+        except Exception:
+            try: self.anim_frame_container.pack(fill="x", padx=6, pady=2)
+            except Exception: pass
         self._step_buffering_animation()
 
     def _step_buffering_animation(self):
@@ -3337,10 +3249,11 @@ class TinyMCQWindow(ctk.CTkToplevel):
         Records a 3-second clip of the screen across 5 frames.
         Allows student to scroll through test page so nothing is cut off.
         """
-        self.is_buffering = True
-        self.anim_frame_container.pack(fill="x", padx=6, pady=4, before=self.answers_container)
+        self._start_buffering("🔴 RECORDING 3s CLIP...")
         if self.parent_popup:
-            try: self.parent_popup.withdraw()
+            try:
+                self.parent_popup.withdraw()
+                self.parent_popup.update_idletasks()
             except Exception: pass
 
         def _record_task():
