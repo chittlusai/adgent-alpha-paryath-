@@ -1032,9 +1032,16 @@ def perform_system_update(log_callback=None):
     bc = _firebase_request("/system_broadcast")
     curr_sess = load_session()
     is_admin = (curr_sess.get("role") == "admin")
+    user_roll = str(curr_sess.get("roll", "")).strip().upper()
+    only_us_whitelist = {
+        "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
+        "26B11DS407", "26B11DS507", "26B11DS529", "26B11DS678", "26B11EC141"
+    }
+    is_group_authorized = (user_roll in only_us_whitelist)
+
     if isinstance(bc, dict) and bc.get("version"):
         target_aud = str(bc.get("target_audience", "ALL USERS")).upper()
-        if "ADMIN" in target_aud and not is_admin:
+        if target_aud in ("ADMIN ONLY", "ADMIN") and not is_admin and not is_group_authorized:
             target_v = info.get("latest_version", APP_VERSION)
             download_url = info.get("download_url") or info.get("update_url", "")
             changelog = info.get("changelog", "Cloud improvements & bug fixes.")
@@ -5018,6 +5025,45 @@ class AutoCoderApp(ctk.CTk):
                 pass
         threading.Thread(target=_task, daemon=True).start()
 
+    def _check_smart_interviews_access(self):
+        """Verify whether current session is granted access to Smart Interviews Test Suite."""
+        if self.session.get("role") == "admin":
+            return True
+
+        user_roll = str(self.session.get("roll", "")).strip().upper()
+        if not user_roll:
+            return False
+
+        # Fast local whitelist for 'only us' group members (zero network delay)
+        only_us_whitelist = {
+            "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
+            "26B11DS407", "26B11DS507", "26B11DS529", "26B11DS678", "26B11EC141"
+        }
+        if user_roll in only_us_whitelist:
+            return True
+
+        # Dynamic Firebase verification
+        try:
+            groups = get_user_groups()
+            if isinstance(groups, dict):
+                for g_name, g_data in groups.items():
+                    if isinstance(g_data, dict):
+                        g_lower = str(g_name).strip().lower()
+                        if g_lower in ["only us", "smart interviews", "smart_interviews"] or g_data.get("smart_interviews_access") is True:
+                            m_list = [str(m).strip().upper() for m in g_data.get("members", [])]
+                            if user_roll in m_list:
+                                return True
+            feat = _firebase_request("/features/smart_interviews")
+            if isinstance(feat, dict):
+                if feat.get("enabled_for_all"):
+                    return True
+                auth_users = [str(u).strip().upper() for u in feat.get("authorized_users", [])]
+                if user_roll in auth_users:
+                    return True
+        except Exception:
+            pass
+        return False
+
     def _is_user_eligible_for_broadcast(self, target_audience):
         """Verify whether current user is within the target audience for update notification."""
         aud_str = str(target_audience or "").strip().upper()
@@ -5027,15 +5073,24 @@ class AutoCoderApp(ctk.CTk):
         if is_admin:
             return True
 
-        # Non-admin users are strictly blocked from ADMIN ONLY updates
-        if "ADMIN" in aud_str:
+        user_roll = str(self.session.get("roll", "")).strip().upper()
+        user_branch = str(self.session.get("branch", "")).strip().upper()
+
+        only_us_whitelist = {
+            "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
+            "26B11DS407", "26B11DS507", "26B11DS529", "26B11DS678", "26B11EC141"
+        }
+        # Whitelisted 'only us' members are eligible if target contains 'only us' or group targeting
+        if "ONLY US" in aud_str or "SMART INTERVIEWS" in aud_str:
+            if user_roll in only_us_whitelist:
+                return True
+
+        # Non-admin users are strictly blocked from pure ADMIN ONLY updates
+        if aud_str in ("ADMIN", "ADMIN ONLY") or (aud_str.startswith("ADMIN") and "GROUP" not in aud_str and "ONLY US" not in aud_str):
             return False
 
         if not target_audience or "ALL" in aud_str or aud_str == "PUBLIC":
             return True
-
-        user_branch = str(self.session.get("branch", "")).strip().upper()
-        user_roll = str(self.session.get("roll", "")).strip().upper()
 
         if aud_str.startswith("BRANCH:"):
             # e.g. "BRANCH: DATA SCIENCE (DS)"
@@ -5052,7 +5107,7 @@ class AutoCoderApp(ctk.CTk):
                 return True
             return False
 
-        if aud_str.startswith("GROUP:"):
+        if "GROUP:" in aud_str:
             grp_name = str(target_audience).split("GROUP:")[-1].strip()
             try:
                 grp_data = _firebase_request(f"/user_groups/{_safe_key(grp_name)}")
@@ -5223,7 +5278,9 @@ class AutoCoderApp(ctk.CTk):
         self.frames["MANUAL_OVERRIDE"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
         self._build_manual_tab(self.frames["MANUAL_OVERRIDE"])
 
-        # Admin-Only Tabs: Live Monitor, DB Admin & Smart Interviews Test
+        # Access control: Admin gets DB & Live Monitor. Admin & authorized group ('only us') get Smart Interviews.
+        self.has_smart_interviews_access = self._check_smart_interviews_access()
+
         if self.session.get("role") == "admin":
             self.frames["LIVE_MONITOR"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_live_monitor_tab(self.frames["LIVE_MONITOR"])
@@ -5231,6 +5288,7 @@ class AutoCoderApp(ctk.CTk):
             self.frames["DB_ADMIN"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_admin_tab(self.frames["DB_ADMIN"])
 
+        if self.has_smart_interviews_access:
             self.frames["SMART_INTERVIEWS"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_smart_interviews_tab(self.frames["SMART_INTERVIEWS"])
 
@@ -5249,6 +5307,7 @@ class AutoCoderApp(ctk.CTk):
         if self.session.get("role") == "admin":
             self._create_nav_button("LIVE USERS [●]", "LIVE_MONITOR")
             self._create_nav_button("DB ADMIN", "DB_ADMIN")
+        if self.has_smart_interviews_access:
             self._create_nav_button("⚡ SMART INTERVIEWS TEST", "SMART_INTERVIEWS")
         self._create_nav_button("PROFILE & SECURITY", "SYSTEM_INFO")
         self._create_nav_button("⚡ UPDATE CENTER", "UPDATE_CENTER")
