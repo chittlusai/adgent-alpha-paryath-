@@ -567,7 +567,14 @@ class AntigravityBackend:
         return code
 
     def _generate_with_fallback(self, contents, config):
-        models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-3.8-flash", "gemini-2.5-pro"]
+        models_to_try = [
+            "gemini-2.5-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-3.8-flash",
+            "gemini-2.5-pro",
+            "gemini-pro-latest"
+        ]
         last_err = None
         for model_name in models_to_try:
             try:
@@ -577,7 +584,8 @@ class AntigravityBackend:
             except Exception as e:
                 last_err = e
                 err_str = str(e)
-                if any(x in err_str for x in ["404", "NOT_FOUND", "503", "UNAVAILABLE"]):
+                # Auto-failover on 404, 503, 429 RESOURCE_EXHAUSTED / quota limits so test answers never get blocked!
+                if any(x in err_str for x in ["404", "NOT_FOUND", "503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "quota"]):
                     continue
                 raise e
         if last_err:
@@ -637,21 +645,20 @@ class AntigravityBackend:
         for _ in range(max(1, len(self.raw_keys))):
             if not self.client: raise RuntimeError("NO_UPLINK")
             sys_inst = (
-                "You are an elite exam proctor and multiple-choice questions (MCQ) solver for Smart Interviews and campus placement assessments.\n"
-                "Analyze the provided screenshot. Detect and solve all visible multiple-choice questions.\n"
-                "CRITICAL: Start your answer for each question with this exact line:\n"
-                "Q1: [Option Letter]\n"
-                "For EACH question found:\n"
-                "1. State: Q<number>: [Option Letter]  (e.g. Q1: B)\n"
-                "2. State the Question Title.\n"
-                "3. List all options: (A), (B), (C), (D).\n"
-                "4. In a bold highlight, state:\n"
-                "   🎯 CORRECT ANSWER: [Option Letter] <Option Text>\n"
-                "5. Provide a crisp, 1-2 sentence explanation proving why it is correct.\n"
-                "If multiple questions exist on screen, separate each with a clear divider line.\n"
-                "Be 100% accurate, definitive, and direct."
+                "You are an expert exam solver for technical assessments (Smart Interviews, HackerRank, Mettle, campus tests).\n"
+                "Analyze the provided image carefully to identify the CURRENT, ACTIVE question being answered.\n"
+                "RULES FOR 100% ACCURACY:\n"
+                "1. Identify the EXACT question number from the screen (e.g., 'Question 6' -> Q6, '4.' -> Q4).\n"
+                "2. Read the entire problem statement, code snippet, constraints, and all options (A, B, C, D).\n"
+                "3. Verify each option logically before making a final selection.\n"
+                "4. The very first line of your response MUST be formatted as:\n"
+                "   Q<number>: [Option Letter]  (e.g. Q6: C or Q4: B)\n"
+                "5. Follow with:\n"
+                "   🎯 CORRECT ANSWER: [Option Letter] <Full text of the correct option>\n"
+                "   💡 EXPLANATION: <1-2 sentences of proof explaining why this option is correct>\n"
+                "If multiple questions are visible, prioritize the one in active focus/scrolled into primary view."
             )
-            user_prompt = "Read the test questions from this screen and output the exact answers and correct options."
+            user_prompt = "Carefully solve the active test question in this screenshot and provide the verified correct option."
             try:
                 r = self._generate_with_fallback(
                     contents=[user_prompt, image],
@@ -671,13 +678,17 @@ class AntigravityBackend:
                 "You are an elite exam proctor analyzing multiple frames recorded over 3 seconds of a test screen.\n"
                 "The user scrolled through the page during the 3 seconds to reveal all parts of the question and options without anything cut off.\n"
                 "Reconstruct the complete question and all options (A, B, C, D) across the frames.\n"
-                "CRITICAL: Start your output with the exact answers formatted as:\n"
-                "Q1: [Option Letter]\n"
-                "Q2: [Option Letter]\n"
-                "Followed by brief question title and rationale.\n"
+                "RULES FOR 100% ACCURACY:\n"
+                "1. Identify the EXACT question number from the screen (e.g., 'Question 6' -> Q6, '4.' -> Q4).\n"
+                "2. Read the entire problem statement, code snippet, constraints, and all options (A, B, C, D).\n"
+                "3. The first line(s) of your output MUST state the question number and correct option letter:\n"
+                "   Q<number>: [Option Letter]  (e.g. Q4: B or Q6: C)\n"
+                "4. Follow with:\n"
+                "   🎯 CORRECT ANSWER: [Option Letter] <Full text of the correct option>\n"
+                "   💡 EXPLANATION: <1-2 sentences of proof explaining why this option is correct>\n"
                 "Be 100% accurate, definitive, and direct."
             )
-            user_prompt = "Read the question and options across these 3-second recording frames and output the exact question numbers and correct option letters (e.g. Q1: B)."
+            user_prompt = "Read the question and options across these 3-second recording frames and output the exact active question number and correct option letter (e.g. Q4: B)."
             contents = [user_prompt] + frames[:6]
             try:
                 r = self._generate_with_fallback(
@@ -2974,8 +2985,22 @@ class TinyMCQWindow(ctk.CTkToplevel):
         self.answers_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.answers_container.pack(fill="both", expand=True, padx=4, pady=2)
 
+        # Request sequencing to prevent stale previous answers from overwriting present answers
+        self.active_req_id = 0
+
         # Initial placeholder
         self._render_placeholder()
+
+    def _clear_for_new_capture(self, mode_name="Analyzing Question..."):
+        self.active_req_id += 1
+        for w in self.answers_container.winfo_children(): w.destroy()
+        lbl = ctk.CTkLabel(
+            self.answers_container,
+            text=f"[ ⏳ {mode_name} ]\nThinking & solving with Gemini AI...",
+            font=("Consolas", 10, "bold"), text_color="#00FF41"
+        )
+        lbl.pack(pady=15)
+        self.lbl_status_tiny.configure(text=f"Scanning • {mode_name}", text_color="#FFD700")
 
     def _start_move(self, event):
         self.start_x = event.x
@@ -3161,24 +3186,33 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 except Exception: pass
 
         if img:
+            self._clear_for_new_capture("Analyzing Full Screen")
             self._start_buffering("AI THINKING (ANALYZING FULL SCREEN)...")
             if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                self.parent_popup._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+                self.parent_popup._set_mcq_status("🧠 Gemini analyzing active question & options...", color="#FFD700")
 
+            my_req = self.active_req_id
             def _task():
                 try:
                     resp = self.app.backend.solve_smart_interviews_mcq(img)
+                    if my_req != self.active_req_id:
+                        return  # Stale response discarded!
                     self.after(0, lambda: self.display_answers(resp))
                     if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
                         def _upd():
-                            self.parent_popup.mcq_result_box.delete("1.0", "end")
-                            self.parent_popup.mcq_result_box.insert("end", resp)
-                            self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
+                            if my_req == getattr(self.parent_popup, "mcq_req_id", my_req):
+                                self.parent_popup.mcq_result_box.delete("1.0", "end")
+                                self.parent_popup.mcq_result_box.insert("end", resp)
+                                self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
                         self.parent_popup.after(0, _upd)
                 except Exception as ex:
+                    if my_req != self.active_req_id:
+                        return
                     def _err():
                         self._stop_buffering()
                         self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                        for w in self.answers_container.winfo_children(): w.destroy()
+                        ctk.CTkLabel(self.answers_container, text=f"❌ Analysis error:\n{ex}\n\nTip: Use ✂️ SNIP to crop only question.", font=("Consolas", 9), text_color="#ff5555").pack(pady=10)
                         if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
                             self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
                     self.after(0, _err)
@@ -3205,24 +3239,33 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 except Exception: pass
 
             if img:
+                self._clear_for_new_capture("Analyzing Snipped Question")
                 self._start_buffering("AI THINKING (ANALYZING SNIPPED QUESTION)...")
                 if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                    self.parent_popup._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+                    self.parent_popup._set_mcq_status("🧠 Gemini analyzing snipped question & options...", color="#FFD700")
 
+                my_req = self.active_req_id
                 def _task():
                     try:
                         resp = self.app.backend.solve_smart_interviews_mcq(img)
+                        if my_req != self.active_req_id:
+                            return  # Stale response discarded!
                         self.after(0, lambda: self.display_answers(resp))
                         if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
                             def _upd():
-                                self.parent_popup.mcq_result_box.delete("1.0", "end")
-                                self.parent_popup.mcq_result_box.insert("end", resp)
-                                self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
+                                if my_req == getattr(self.parent_popup, "mcq_req_id", my_req):
+                                    self.parent_popup.mcq_result_box.delete("1.0", "end")
+                                    self.parent_popup.mcq_result_box.insert("end", resp)
+                                    self.parent_popup._set_mcq_status("✅ Solved! Options displayed below & in Tiny HUD.", color="#00FF41")
                             self.parent_popup.after(0, _upd)
                     except Exception as ex:
+                        if my_req != self.active_req_id:
+                            return
                         def _err():
                             self._stop_buffering()
                             self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                            for w in self.answers_container.winfo_children(): w.destroy()
+                            ctk.CTkLabel(self.answers_container, text=f"❌ Snip analysis error:\n{ex}", font=("Consolas", 9), text_color="#ff5555").pack(pady=10)
                             if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
                                 self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
                         self.after(0, _err)
@@ -3249,6 +3292,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
         Records a 3-second clip of the screen across 5 frames.
         Allows student to scroll through test page so nothing is cut off.
         """
+        self._clear_for_new_capture("Recording 3-Sec Clip")
         self._start_buffering("🔴 RECORDING 3s CLIP...")
         if self.parent_popup:
             try:
@@ -3256,6 +3300,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 self.parent_popup.update_idletasks()
             except Exception: pass
 
+        my_req = self.active_req_id
         def _record_task():
             frames = []
             start_t = time.time()
@@ -3290,17 +3335,24 @@ class TinyMCQWindow(ctk.CTkToplevel):
 
             try:
                 resp = self.app.backend.solve_smart_interviews_mcq_clip(frames)
+                if my_req != self.active_req_id:
+                    return
                 self.after(0, lambda: self.display_answers(resp))
                 if self.parent_popup and hasattr(self.parent_popup, "mcq_result_box"):
                     def _update_parent():
-                        self.parent_popup.mcq_result_box.delete("1.0", "end")
-                        self.parent_popup.mcq_result_box.insert("end", resp)
-                        self.parent_popup._set_mcq_status("✅ 3-Sec Clip Solved! Answers displayed in Tiny HUD.", color="#00FF41")
+                        if my_req == getattr(self.parent_popup, "mcq_req_id", my_req):
+                            self.parent_popup.mcq_result_box.delete("1.0", "end")
+                            self.parent_popup.mcq_result_box.insert("end", resp)
+                            self.parent_popup._set_mcq_status("✅ 3-Sec Clip Solved! Answers displayed in Tiny HUD.", color="#00FF41")
                     self.parent_popup.after(0, _update_parent)
             except Exception as ex:
+                if my_req != self.active_req_id:
+                    return
                 def _err():
                     self._stop_buffering()
                     self.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                    for w in self.answers_container.winfo_children(): w.destroy()
+                    ctk.CTkLabel(self.answers_container, text=f"❌ Clip analysis error:\n{ex}", font=("Consolas", 9), text_color="#ff5555").pack(pady=10)
                 self.after(0, _err)
 
         threading.Thread(target=_record_task, daemon=True).start()
@@ -3711,28 +3763,44 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
 
     def _process_mcq_image(self, img):
         self.is_processing = True
-        self._set_mcq_status("🧠 Gemini 2.5 Flash analyzing questions & options...", color="#FFD700")
+        self.mcq_req_id = getattr(self, "mcq_req_id", 0) + 1
+        my_req = self.mcq_req_id
+
+        self._set_mcq_status("🧠 Gemini analyzing questions & options...", color="#FFD700")
+        self.mcq_result_box.delete("1.0", "end")
+        self.mcq_result_box.insert("end", "[*] Analyzing active question and computing verified answer...\n")
+
         if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+            self.app.tiny_mcq_window._clear_for_new_capture("Analyzing Question")
             self.app.tiny_mcq_window._start_buffering("AI THINKING (ANALYZING MCQ)...")
 
-        try:
-            resp = self.app.backend.solve_smart_interviews_mcq(img)
-            def _ui():
-                self.mcq_result_box.delete("1.0", "end")
-                self.mcq_result_box.insert("end", resp)
-                self._set_mcq_status("✅ SOLVED! Correct answer highlighted below:", color="#00FF41")
-                self.is_processing = False
-                if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
-                    self.app.tiny_mcq_window.display_answers(resp)
-            self.after(0, _ui)
-        except Exception as ex:
-            def _err():
-                self._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
-                self.is_processing = False
-                if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
-                    self.app.tiny_mcq_window._stop_buffering()
-                    self.app.tiny_mcq_window.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
-            self.after(0, _err)
+        def _task():
+            try:
+                resp = self.app.backend.solve_smart_interviews_mcq(img)
+                if my_req != getattr(self, "mcq_req_id", 0):
+                    return  # Discard old question answer!
+                def _ui():
+                    self.mcq_result_box.delete("1.0", "end")
+                    self.mcq_result_box.insert("end", resp)
+                    self._set_mcq_status("✅ SOLVED! Correct answer highlighted below:", color="#00FF41")
+                    self.is_processing = False
+                    if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                        self.app.tiny_mcq_window.display_answers(resp)
+                self.after(0, _ui)
+            except Exception as ex:
+                if my_req != getattr(self, "mcq_req_id", 0):
+                    return
+                def _err():
+                    self._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                    self.mcq_result_box.delete("1.0", "end")
+                    self.mcq_result_box.insert("end", f"❌ ERROR: {ex}\n\nTIP: Use '✂️ SNIP QUESTION' to crop closely around Question {self.mcq_req_id}.")
+                    self.is_processing = False
+                    if hasattr(self.app, "tiny_mcq_window") and self.app.tiny_mcq_window and self.app.tiny_mcq_window.winfo_exists():
+                        self.app.tiny_mcq_window._stop_buffering()
+                        self.app.tiny_mcq_window.lbl_status_tiny.configure(text=f"Error: {ex}", text_color="#ff4444")
+                self.after(0, _err)
+
+        threading.Thread(target=_task, daemon=True).start()
 
     def _process_code_image(self, img):
         self.is_processing = True
