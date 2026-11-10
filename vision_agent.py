@@ -523,19 +523,45 @@ def revoke_latest_update():
 
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
+    """
+    Unified AI Assessment Engine supporting:
+    1. OpenRouter API (sk-or-...) - OpenAI compatible with Gemini 2.0 Flash, Llama 3.2 Vision, GPT-4o-mini
+    2. Google Gemini API (AIzaSy...) - Official Google GenAI SDK with multi-model auto-failover
+    """
     def __init__(self, api_key=""):
-        self.raw_keys = [k.strip() for k in api_key.replace(";", ",").split(",") if k.strip()]
+        self.raw_keys = [k.strip() for k in str(api_key).replace(";", ",").split(",") if k.strip()]
         self.key_idx  = 0
         self.client   = None
+        self.provider = "gemini"
         if self.raw_keys:
             self._init_client()
 
+    def _detect_provider(self, key):
+        k = str(key).strip()
+        if k.startswith("sk-or-") or k.startswith("sk-"):
+            return "openrouter"
+        return "gemini"
+
+    def _get_current_key(self):
+        if not self.raw_keys:
+            return ""
+        return self.raw_keys[self.key_idx % len(self.raw_keys)]
+
     def _init_client(self):
-        if _genai and self.raw_keys:
-            cur_key = self.raw_keys[self.key_idx % len(self.raw_keys)]
-            try:
-                self.client = _genai.Client(api_key=cur_key)
-            except Exception:
+        cur_key = self._get_current_key()
+        if not cur_key:
+            self.client = None
+            return
+        self.provider = self._detect_provider(cur_key)
+        if self.provider == "openrouter":
+            self.client = "OPENROUTER_ONLINE"
+        else:
+            if _genai and cur_key:
+                try:
+                    self.client = _genai.Client(api_key=cur_key)
+                except Exception:
+                    self.client = None
+            else:
                 self.client = None
 
     def _rotate_key(self):
@@ -544,6 +570,19 @@ class AntigravityBackend:
             self._init_client()
             return True
         return False
+
+    def _image_to_data_uri(self, img):
+        import io, base64
+        try:
+            if hasattr(img, "mode") and img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=92)
+            return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
     def _sys(self, lang, format_type="competitive", mode="optimal"):
         base = f"You are an expert autonomous software engineer specialised in {lang}. "
@@ -558,7 +597,9 @@ class AntigravityBackend:
         return base + fmt_inst + sol_inst + "STRICT: Output ONLY executable code. No markdown fences. No explanations. Start line 1 with code."
 
     def _clean(self, code):
-        code = code.strip()
+        code = str(code).strip()
+        if "<think>" in code and "</think>" in code:
+            code = re.sub(r'<think>.*?</think>', '', code, flags=re.DOTALL).strip()
         if code.startswith("```"):
             lines = code.splitlines()
             if lines and lines[0].startswith("```"):  lines = lines[1:]
@@ -566,7 +607,103 @@ class AntigravityBackend:
             code = "\n".join(lines).strip()
         return code
 
+    def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1):
+        """Execute multimodal or text completion request through OpenRouter API gateway."""
+        cur_key = self._get_current_key()
+        has_vision = (image is not None) or (images is not None and len(images) > 0)
+
+        if has_vision:
+            models_to_try = [
+                "google/gemini-2.0-flash-001",
+                "google/gemini-flash-1.5",
+                "meta-llama/llama-3.2-11b-vision-instruct:free",
+                "openai/gpt-4o-mini",
+                "google/gemini-2.0-flash-exp:free",
+                "qwen/qwen-2.5-vl-72b-instruct"
+            ]
+        else:
+            models_to_try = [
+                "google/gemini-2.0-flash-001",
+                "qwen/qwen-2.5-coder-32b-instruct",
+                "meta-llama/llama-3.3-70b-instruct",
+                "openai/gpt-4o-mini",
+                "deepseek/deepseek-chat"
+            ]
+
+        messages = []
+        if sys_inst:
+            messages.append({"role": "system", "content": sys_inst})
+
+        if has_vision:
+            user_content = [{"type": "text", "text": prompt}]
+            if image is not None:
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": self._image_to_data_uri(image)}
+                })
+            elif images:
+                for im in images[:6]:
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": self._image_to_data_uri(im)}
+                    })
+            messages.append({"role": "user", "content": user_content})
+        else:
+            messages.append({"role": "user", "content": prompt})
+
+        last_err = None
+        for model_name in models_to_try:
+            try:
+                payload = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": temperature
+                }
+                req_bytes = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    data=req_bytes,
+                    headers={
+                        "Authorization": f"Bearer {cur_key}",
+                        "HTTP-Referer": "https://github.com/chittlusai/adgent-alpha-paryath-",
+                        "X-Title": "Agent Prayath",
+                        "Content-Type": "application/json",
+                        "User-Agent": "AgentPrayath/4.0"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    choices = res_json.get("choices", [])
+                    if choices and "message" in choices[0]:
+                        raw_text = choices[0]["message"].get("content", "")
+                        if "<think>" in raw_text and "</think>" in raw_text:
+                            raw_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+                        return raw_text.strip()
+            except urllib.error.HTTPError as he:
+                err_body = ""
+                try: err_body = he.read().decode("utf-8")
+                except Exception: pass
+                last_err = RuntimeError(f"OpenRouter HTTP {he.code}: {err_body}")
+                if he.code in (429, 402):
+                    if self._rotate_key():
+                        cur_key = self._get_current_key()
+                        continue
+                if he.code in (404, 502, 503, 504, 429):
+                    continue
+                raise last_err
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                if any(x in err_str for x in ["404", "503", "429", "timeout", "timed out"]):
+                    continue
+                raise e
+
+        if last_err:
+            raise last_err
+        raise RuntimeError("OpenRouter failed to return content across all fallback models.")
+
     def _generate_with_fallback(self, contents, config):
+        """Execute multimodal or text completion request through Google GenAI SDK."""
         models_to_try = [
             "gemini-2.5-flash",
             "gemini-2.0-flash",
@@ -587,7 +724,6 @@ class AntigravityBackend:
             except Exception as e:
                 last_err = e
                 err_str = str(e)
-                # Auto-failover on 404 NOT_FOUND, 503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED / quota limits so test answers never get blocked!
                 if any(x in err_str for x in ["404", "NOT_FOUND", "503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "quota"]):
                     continue
                 raise e
@@ -597,13 +733,16 @@ class AntigravityBackend:
     def from_text(self, prompt, lang, format_type="competitive", mode="optimal"):
         for _ in range(max(1, len(self.raw_keys))):
             if not self.client: raise RuntimeError("NO_UPLINK")
+            sys_inst = self._sys(lang, format_type, mode)
             try:
-                r = self._generate_with_fallback(
-                    contents=prompt,
-                    config={"system_instruction": self._sys(lang, format_type, mode), "temperature": 0.1})
-                return self._clean(r.text)
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=prompt, sys_inst=sys_inst, temperature=0.1)
+                else:
+                    r = self._generate_with_fallback(contents=prompt, config={"system_instruction": sys_inst, "temperature": 0.1})
+                    res = r.text
+                return self._clean(res)
             except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
                     if self._rotate_key(): continue
                 raise e
 
@@ -613,35 +752,55 @@ class AntigravityBackend:
             p  = prompt or f"Read the coding question on screen and write the solution in {lang}."
             si = sys_inst or self._sys(lang, format_type, mode)
             try:
-                r = self._generate_with_fallback(
-                    contents=[p, image],
-                    config={"system_instruction": si, "temperature": 0.1})
-                return self._clean(r.text)
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=p, sys_inst=si, image=image, temperature=0.1)
+                else:
+                    r = self._generate_with_fallback(contents=[p, image], config={"system_instruction": si, "temperature": 0.1})
+                    res = r.text
+                return self._clean(res)
             except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
                     if self._rotate_key(): continue
                 raise e
 
     def generate_viva_notes(self, code, lang):
-        if not self.client: raise RuntimeError("NO_UPLINK")
-        prompt = (f"Review this {lang} code:\n\n{code}\n\n"
-                  "Provide a concise viva & exam preparation sheet in this exact format:\n"
-                  "1. ALGORITHM OVERVIEW (3 simple bullet points explaining the core logic)\n"
-                  "2. COMPLEXITY ANALYSIS (Time Complexity: O(?), Space Complexity: O(?))\n"
-                  "3. 3 COMMON VIVA QUESTIONS WITH MODEL ANSWERS (Questions an examiner or interviewer will ask about this code)")
-        r = self._generate_with_fallback(
-            contents=prompt,
-            config={"system_instruction": "You are a university computer science professor preparing students for viva examinations.", "temperature": 0.2})
-        return r.text.strip()
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            prompt = (f"Review this {lang} code:\n\n{code}\n\n"
+                      "Provide a concise viva & exam preparation sheet in this exact format:\n"
+                      "1. ALGORITHM OVERVIEW (3 simple bullet points explaining the core logic)\n"
+                      "2. COMPLEXITY ANALYSIS (Time Complexity: O(?), Space Complexity: O(?))\n"
+                      "3. 3 COMMON VIVA QUESTIONS WITH MODEL ANSWERS (Questions an examiner or interviewer will ask about this code)")
+            sys_inst = "You are a university computer science professor preparing students for viva examinations."
+            try:
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=prompt, sys_inst=sys_inst, temperature=0.2)
+                else:
+                    r = self._generate_with_fallback(contents=prompt, config={"system_instruction": sys_inst, "temperature": 0.2})
+                    res = r.text
+                return res.strip()
+            except Exception as e:
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
+                    if self._rotate_key(): continue
+                raise e
 
     def predict_test_cases(self, code, lang):
-        if not self.client: raise RuntimeError("NO_UPLINK")
-        prompt = (f"Review this {lang} code:\n\n{code}\n\n"
-                  "Generate 3 diverse test cases with inputs, expected outputs, and explain 2 critical edge cases (e.g. boundary values, zero, negative numbers, empty input).")
-        r = self._generate_with_fallback(
-            contents=prompt,
-            config={"system_instruction": "You are a competitive programming judge creating rigorous test suites.", "temperature": 0.2})
-        return r.text.strip()
+        for _ in range(max(1, len(self.raw_keys))):
+            if not self.client: raise RuntimeError("NO_UPLINK")
+            prompt = (f"Review this {lang} code:\n\n{code}\n\n"
+                      "Generate 3 diverse test cases with inputs, expected outputs, and explain 2 critical edge cases (e.g. boundary values, zero, negative numbers, empty input).")
+            sys_inst = "You are a competitive programming judge creating rigorous test suites."
+            try:
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=prompt, sys_inst=sys_inst, temperature=0.2)
+                else:
+                    r = self._generate_with_fallback(contents=prompt, config={"system_instruction": sys_inst, "temperature": 0.2})
+                    res = r.text
+                return res.strip()
+            except Exception as e:
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
+                    if self._rotate_key(): continue
+                raise e
 
     def solve_smart_interviews_mcq(self, image):
         """Analyze test question screenshot and output question, options, correct answer with explanation."""
@@ -663,13 +822,14 @@ class AntigravityBackend:
             )
             user_prompt = "Carefully solve the active test question in this screenshot and provide the verified correct option."
             try:
-                r = self._generate_with_fallback(
-                    contents=[user_prompt, image],
-                    config={"system_instruction": sys_inst, "temperature": 0.1}
-                )
-                return r.text.strip()
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1)
+                else:
+                    r = self._generate_with_fallback(contents=[user_prompt, image], config={"system_instruction": sys_inst, "temperature": 0.1})
+                    res = r.text
+                return res.strip()
             except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
                     if self._rotate_key(): continue
                 raise e
 
@@ -692,15 +852,16 @@ class AntigravityBackend:
                 "Be 100% accurate, definitive, and direct."
             )
             user_prompt = "Read the question and options across these 3-second recording frames and output the exact active question number and correct option letter (e.g. Q4: B)."
-            contents = [user_prompt] + frames[:6]
             try:
-                r = self._generate_with_fallback(
-                    contents=contents,
-                    config={"system_instruction": sys_inst, "temperature": 0.1}
-                )
-                return r.text.strip()
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, images=frames[:6], temperature=0.1)
+                else:
+                    contents = [user_prompt] + frames[:6]
+                    r = self._generate_with_fallback(contents=contents, config={"system_instruction": sys_inst, "temperature": 0.1})
+                    res = r.text
+                return res.strip()
             except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
                     if self._rotate_key(): continue
                 raise e
 
@@ -720,16 +881,16 @@ class AntigravityBackend:
             )
             user_prompt = f"Read the coding problem on this screen and write the optimal, complete solution in {lang}."
             try:
-                r = self._generate_with_fallback(
-                    contents=[user_prompt, image],
-                    config={"system_instruction": sys_inst, "temperature": 0.1}
-                )
-                return self._clean(r.text)
+                if self.provider == "openrouter":
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1)
+                else:
+                    r = self._generate_with_fallback(contents=[user_prompt, image], config={"system_instruction": sys_inst, "temperature": 0.1})
+                    res = r.text
+                return self._clean(res)
             except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                if any(x in str(e) for x in ["429", "RESOURCE_EXHAUSTED", "402"]):
                     if self._rotate_key(): continue
                 raise e
-
 
 # ── HACKER THEME TOKENS ─────────────────────────────────────────────────────
 BG         = "#030303"
@@ -1169,8 +1330,101 @@ def perform_system_update(log_callback=None):
 
 
 
+# ── AI UPLINK VALIDATOR (OPENROUTER & GEMINI) ──────────────────────────────────
+def validate_ai_uplink_key(api_key: str):
+    """
+    Universal API Validator supporting both OpenRouter (sk-or-...) and Google Gemini (AIzaSy...).
+    Tests live cloud connectivity and returns (is_valid: bool, status_message: str).
+    """
+    key = str(api_key).strip()
+    if not key:
+        return False, "API key cannot be empty. Please enter your OpenRouter key (sk-or-...) or Gemini key."
+
+    # 1. OpenRouter Key Validation (sk-or-... or sk-...)
+    if key.startswith("sk-or-") or key.startswith("sk-"):
+        try:
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/auth/key",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "AgentPrayath/4.0",
+                    "HTTP-Referer": "https://github.com/chittlusai/adgent-alpha-paryath-",
+                    "X-Title": "Agent Prayath"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                key_data = data.get("data", {})
+                label = key_data.get("label") or "OpenRouter"
+                limit = key_data.get("limit")
+                limit_info = f"${limit}" if limit else "Active / Pay-as-you-go"
+                return True, f"OpenRouter API Key valid & connected! ({label} • Limit: {limit_info})"
+        except urllib.error.HTTPError as he:
+            err_body = ""
+            try: err_body = he.read().decode("utf-8")
+            except Exception: pass
+            if he.code == 401:
+                return False, f"Invalid OpenRouter Key (HTTP 401).\nDetails: {err_body}"
+            elif he.code == 402:
+                return True, "OpenRouter Key valid! (Notice: Low credits / free tier models active)."
+            elif he.code == 429:
+                return True, "OpenRouter Key valid! (Rate limit 429 reached, will reset shortly)."
+            return False, f"OpenRouter Cloud returned HTTP {he.code}: {err_body}"
+        except Exception as ex:
+            return False, f"Could not reach OpenRouter Cloud: {ex}"
+
+    # 2. Google Gemini SDK Validation
+    if _genai:
+        test_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+        try:
+            client = _genai.Client(api_key=key)
+            for m in test_models:
+                try:
+                    r = client.models.generate_content(model=m, contents="Test uplink")
+                    if r and r.text:
+                        return True, f"Gemini API Key is valid and active! (Connected to {m})"
+                except Exception as ge:
+                    err_str = str(ge)
+                    if "API_KEY_INVALID" in err_str or "400" in err_str:
+                        return False, f"Invalid API Key (HTTP 400). Google returned:\n{err_str}"
+                    elif "403" in err_str or "PERMISSION_DENIED" in err_str:
+                        return False, f"Permission Denied (HTTP 403). Ensure Generative Language API is enabled."
+                    elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        return True, f"API Key is valid! (Rate limit 429 reached on {m}, quota will reset shortly)."
+                    elif "404" in err_str or "NOT_FOUND" in err_str:
+                        continue
+                    continue
+        except Exception:
+            pass
+
+    # 3. Google Gemini REST Fallback
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if isinstance(data, dict) and "models" in data:
+                return True, "API Key is valid and active! (Google Gemini Connected)"
+            return True, "API Key connected successfully."
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try: err_body = he.read().decode("utf-8")
+        except Exception: pass
+        if he.code == 400:
+            return False, f"Invalid API Key (HTTP 400).\nDetails: {err_body}"
+        elif he.code == 403:
+            return False, f"API Key Forbidden (HTTP 403).\nDetails: {err_body}"
+        elif he.code == 429:
+            return True, "Key is valid! (Notice: Rate limit 429 reached, will reset shortly)."
+        else:
+            return False, f"Cloud returned HTTP {he.code}:\n{err_body}"
+    except Exception as ex:
+        return False, f"Could not reach AI Cloud: {ex}"
+
+validate_gemini_api_key = validate_ai_uplink_key
+
 # ── GEMINI API VALIDATOR & DIAGNOSTIC MODAL ──────────────────────────────────
-def validate_gemini_api_key(api_key: str):
+def _legacy_validate_gemini_api_key(api_key: str):
     """
     Validate whether a Gemini API key is active and functional using Gemini 2.5 Flash.
     Returns (is_valid: bool, status_message: str)
@@ -1310,26 +1564,28 @@ class ApiKeyConfigModal(ctk.CTkToplevel):
     def _build_ui(self):
         hdr = ctk.CTkFrame(self, height=50, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
         hdr.pack(fill="x", padx=10, pady=10); hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text=">_ GEMINI API KEY CONFIGURATION", font=FH2, text_color=NEON_GREEN).pack(side="left", padx=15)
+        ctk.CTkLabel(hdr, text=">_ AI UPLINK (OPENROUTER / GEMINI) CONFIGURATION", font=FH2, text_color=NEON_GREEN).pack(side="left", padx=15)
         HackerButton(hdr, "✕", self.destroy, height=28, width=32, color=SURFACE, text_col=MUTED).pack(side="right", padx=10)
 
         card = HackerCard(self)
         card.pack(fill="both", expand=True, padx=15, pady=(0, 10))
 
-        # Direct Link to get Free Key
+        # Direct Links to get OpenRouter or Gemini Key
         link_box = ctk.CTkFrame(card, fg_color="transparent")
         link_box.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(link_box, text="Get your free Gemini API key from Google:", font=FS, text_color=MUTED).pack(side="left")
-        HackerButton(link_box, "🔑 OPEN GOOGLE AI STUDIO (FREE KEY)",
+        HackerButton(link_box, "🌐 GET OPENROUTER KEY (openrouter.ai)",
+                     lambda: webbrowser.open("https://openrouter.ai/keys"),
+                     height=28, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 8))
+        HackerButton(link_box, "🔑 GOOGLE AI STUDIO (GEMINI)",
                      lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
                      height=28, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="right")
 
-        ctk.CTkLabel(card, text="PASTE GEMINI API KEY:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=15, pady=(10, 3))
+        ctk.CTkLabel(card, text="PASTE OPENROUTER (sk-or-...) OR GEMINI KEY:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=15, pady=(10, 3))
 
         entry_row = ctk.CTkFrame(card, fg_color="transparent")
         entry_row.pack(fill="x", padx=15, pady=5)
 
-        self.key_entry = HackerEntry(entry_row, show="*", placeholder="Paste API key here (starts with AIzaSy...)...")
+        self.key_entry = HackerEntry(entry_row, show="*", placeholder="Paste API key here (OpenRouter: sk-or-... or Gemini: AIzaSy...)...")
         self.key_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         cur_key = self.parent.session.get("api_key", "")
         if cur_key:
@@ -1338,7 +1594,7 @@ class ApiKeyConfigModal(ctk.CTkToplevel):
         self.btn_test = HackerButton(entry_row, "⚡ TEST KEY", self._test_key, height=38, width=100, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN)
         self.btn_test.pack(side="right")
 
-        self.status_lbl = ctk.CTkLabel(card, text="[*] Enter your API key and click 'TEST KEY' or 'SAVE & APPLY'.", font=FS, text_color=MUTED, anchor="w")
+        self.status_lbl = ctk.CTkLabel(card, text="[*] Enter your OpenRouter or Gemini key and click 'TEST KEY' or 'SAVE & APPLY'.", font=FS, text_color=MUTED, anchor="w")
         self.status_lbl.pack(fill="x", padx=15, pady=(2, 12))
 
         # Action Buttons
@@ -1354,7 +1610,7 @@ class ApiKeyConfigModal(ctk.CTkToplevel):
             self.status_lbl.configure(text="[-] Please enter an API key to test.", text_color=DANGER)
             return
         self.btn_test.configure(state="disabled")
-        self.status_lbl.configure(text="[*] Contacting Google Gemini Cloud...", text_color=NEON_GREEN)
+        self.status_lbl.configure(text="[*] Verifying AI Uplink (OpenRouter / Gemini Cloud)...", text_color=NEON_GREEN)
         def _task():
             ok, msg = validate_gemini_api_key(k)
             def _ui():
@@ -1382,7 +1638,8 @@ class ApiKeyConfigModal(ctk.CTkToplevel):
                                                 text_color=NEON_GREEN if k else WARNING)
         if hasattr(self.parent, "_build_ai_tab") and "AI_MODULE" in getattr(self.parent, "frames", {}):
             self.parent._build_ai_tab(self.parent.frames["AI_MODULE"])
-        messagebox.showinfo("API CONFIGURED", "Gemini API Key saved and activated successfully!")
+        provider = getattr(self.parent.backend, "provider", "AI").capitalize()
+        messagebox.showinfo("API CONFIGURED", f"{provider} API Key saved and activated successfully!")
         self.destroy()
 
     def _clear_key(self):
@@ -3008,7 +3265,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
         for w in self.answers_container.winfo_children(): w.destroy()
         lbl = ctk.CTkLabel(
             self.answers_container,
-            text=f"[ ⏳ {mode_name} ]\nThinking & solving with Gemini AI...",
+            text=f"[ ⏳ {mode_name} ]\nThinking & solving with AI Engine...",
             font=("Consolas", 10, "bold"), text_color="#00FF41"
         )
         lbl.pack(pady=15)
@@ -3201,7 +3458,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
             self._clear_for_new_capture("Analyzing Full Screen")
             self._start_buffering("AI THINKING (ANALYZING FULL SCREEN)...")
             if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                self.parent_popup._set_mcq_status("🧠 Gemini analyzing active question & options...", color="#FFD700")
+                self.parent_popup._set_mcq_status("🧠 AI Engine analyzing active question & options...", color="#FFD700")
 
             my_req = self.active_req_id
             def _task():
@@ -3226,7 +3483,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                         for w in self.answers_container.winfo_children(): w.destroy()
                         ctk.CTkLabel(self.answers_container, text=f"❌ Analysis error:\n{ex}\n\nTip: Use ✂️ SNIP to crop only question.", font=("Consolas", 9), text_color="#ff5555").pack(pady=10)
                         if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                            self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                            self.parent_popup._set_mcq_status(f"❌ AI ERROR: {ex}", color="#ff4444")
                     self.after(0, _err)
             threading.Thread(target=_task, daemon=True).start()
 
@@ -3254,7 +3511,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 self._clear_for_new_capture("Analyzing Snipped Question")
                 self._start_buffering("AI THINKING (ANALYZING SNIPPED QUESTION)...")
                 if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                    self.parent_popup._set_mcq_status("🧠 Gemini analyzing snipped question & options...", color="#FFD700")
+                    self.parent_popup._set_mcq_status("🧠 AI Engine analyzing snipped question & options...", color="#FFD700")
 
                 my_req = self.active_req_id
                 def _task():
@@ -3279,7 +3536,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                             for w in self.answers_container.winfo_children(): w.destroy()
                             ctk.CTkLabel(self.answers_container, text=f"❌ Snip analysis error:\n{ex}", font=("Consolas", 9), text_color="#ff5555").pack(pady=10)
                             if self.parent_popup and hasattr(self.parent_popup, "_set_mcq_status"):
-                                self.parent_popup._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                                self.parent_popup._set_mcq_status(f"❌ AI ERROR: {ex}", color="#ff4444")
                         self.after(0, _err)
                 threading.Thread(target=_task, daemon=True).start()
 
@@ -3778,7 +4035,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
         self.mcq_req_id = getattr(self, "mcq_req_id", 0) + 1
         my_req = self.mcq_req_id
 
-        self._set_mcq_status("🧠 Gemini analyzing questions & options...", color="#FFD700")
+        self._set_mcq_status("🧠 AI Engine analyzing questions & options...", color="#FFD700")
         self.mcq_result_box.delete("1.0", "end")
         self.mcq_result_box.insert("end", "[*] Analyzing active question and computing verified answer...\n")
 
@@ -3803,7 +4060,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
                 if my_req != getattr(self, "mcq_req_id", 0):
                     return
                 def _err():
-                    self._set_mcq_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                    self._set_mcq_status(f"❌ AI ERROR: {ex}", color="#ff4444")
                     self.mcq_result_box.delete("1.0", "end")
                     self.mcq_result_box.insert("end", f"❌ ERROR: {ex}\n\nTIP: Use '✂️ SNIP QUESTION' to crop closely around Question {self.mcq_req_id}.")
                     self.is_processing = False
@@ -3817,7 +4074,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
     def _process_code_image(self, img):
         self.is_processing = True
         lang = self.code_lang_var.get()
-        self._set_code_status(f"🧠 Gemini 2.5 Flash synthesizing optimal {lang} solution...", color="#FFD700")
+        self._set_code_status(f"🧠 AI Engine synthesizing optimal {lang} solution...", color="#FFD700")
         try:
             code = self.app.backend.solve_smart_interviews_code(img, lang=lang)
             def _ui():
@@ -3829,7 +4086,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             self.after(0, _ui)
         except Exception as ex:
             def _err():
-                self._set_code_status(f"❌ GEMINI ERROR: {ex}", color="#ff4444")
+                self._set_code_status(f"❌ AI ERROR: {ex}", color="#ff4444")
                 self.is_processing = False
             self.after(0, _err)
 
@@ -4637,27 +4894,29 @@ class OnboardingWizard(ctk.CTk):
     def _render_step_apikey(self):
         self._stop_anim.set()
         self._clear()
-        ctk.CTkLabel(self.content, text="CONFIGURE GEMINI API KEY", font=FH1, text_color=NEON_GREEN).pack(pady=(20,5))
-        ctk.CTkLabel(self.content, text="Connect Google Gemini API to enable Autonomous AI Coding", font=FB, text_color=MUTED).pack(pady=(0,15))
+        ctk.CTkLabel(self.content, text="CONFIGURE AI UPLINK (OPENROUTER / GEMINI)", font=FH1, text_color=NEON_GREEN).pack(pady=(20,5))
+        ctk.CTkLabel(self.content, text="Connect OpenRouter or Google Gemini API to enable Autonomous AI Coding", font=FB, text_color=MUTED).pack(pady=(0,15))
 
         saved_key = self.session.get("api_key", "")
         card = HackerCard(self.content)
         card.pack(fill="x", padx=20, pady=10)
 
-        # 1-Click Direct Link to get free Gemini API key
+        # 1-Click Direct Links for OpenRouter and Gemini
         link_box = ctk.CTkFrame(card, fg_color="transparent")
         link_box.pack(fill="x", padx=20, pady=(15, 8))
-        ctk.CTkLabel(link_box, text="Don't have an API key? Get one free in 30 seconds:", font=FS, text_color=MUTED).pack(side="left")
-        HackerButton(link_box, "🔑 GET FREE API KEY (GOOGLE AI STUDIO)",
+        HackerButton(link_box, "🌐 GET OPENROUTER KEY (openrouter.ai)",
+                     lambda: webbrowser.open("https://openrouter.ai/keys"),
+                     height=30, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 10))
+        HackerButton(link_box, "🔑 GOOGLE AI STUDIO (GEMINI)",
                      lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
                      height=30, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="right")
 
-        ctk.CTkLabel(card, text="GEMINI API KEY (Optional for Offline DSA Vault):", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(10, 5))
+        ctk.CTkLabel(card, text="OPENROUTER (sk-or-...) OR GEMINI KEY:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(10, 5))
 
         entry_row = ctk.CTkFrame(card, fg_color="transparent")
         entry_row.pack(fill="x", padx=20, pady=5)
 
-        self.api_e = HackerEntry(entry_row, show="*", placeholder="Paste Gemini API Key here (starts with AIzaSy...)...")
+        self.api_e = HackerEntry(entry_row, show="*", placeholder="Paste OpenRouter Key (sk-or-...) or Gemini Key (AIzaSy...)...")
         self.api_e.pack(side="left", fill="x", expand=True, padx=(0, 10))
         if saved_key: self.api_e.insert(0, saved_key)
 
@@ -4676,10 +4935,10 @@ class OnboardingWizard(ctk.CTk):
         k = self.api_e.get().strip()
         if not k:
             self.api_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
-            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your Gemini API key before testing.")
+            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your OpenRouter or Gemini API key before testing.")
             return
         self.btn_test_api.configure(state="disabled")
-        self.api_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
+        self.api_status_lbl.configure(text="[*] Verifying AI Uplink with Cloud...", text_color=NEON_GREEN)
         def _task():
             ok, msg = validate_gemini_api_key(k)
             def _ui():
@@ -5376,9 +5635,9 @@ class AutoCoderApp(ctk.CTk):
         k = self.ai_quick_api_entry.get().strip() if hasattr(self, "ai_quick_api_entry") else ""
         if not k:
             self.ai_quick_status_lbl.configure(text="[-] Please paste an API key first.", text_color=DANGER)
-            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your Gemini API key before testing.")
+            show_api_error_modal(self, "API KEY REQUIRED", "Please enter or paste your OpenRouter or Gemini API key before testing.")
             return
-        self.ai_quick_status_lbl.configure(text="[*] Contacting Google Gemini Cloud to verify key...", text_color=NEON_GREEN)
+        self.ai_quick_status_lbl.configure(text="[*] Verifying AI Uplink (OpenRouter / Gemini Cloud)...", text_color=NEON_GREEN)
         def _task():
             ok, msg = validate_gemini_api_key(k)
             def _ui():
@@ -5449,25 +5708,30 @@ class AutoCoderApp(ctk.CTk):
             card.pack(fill="both", expand=True, padx=20, pady=20)
 
             ctk.CTkLabel(card, text="⚡ AI UPLINK NOT CONFIGURED", font=FH1, text_color=DANGER).pack(pady=(25, 5))
-            ctk.CTkLabel(card, text="A Google Gemini API key is required for AI Screen Snipping & Auto Code Generation.", font=FB, text_color=MUTED).pack(pady=(0, 15))
+            ctk.CTkLabel(card, text="An OpenRouter (sk-or-...) or Google Gemini (AIzaSy...) key is required for AI Screen Snipping & Auto Code Generation.", font=FB, text_color=MUTED).pack(pady=(0, 15))
 
-            # 1-Click Direct Link to get free Gemini API key
+            # 1-Click Direct Links to get OpenRouter or Gemini key
             link_box = ctk.CTkFrame(card, fg_color=SURFACE, border_width=1, border_color=DARK_GREEN)
             link_box.pack(fill="x", padx=30, pady=10)
-            ctk.CTkLabel(link_box, text="Need a free API key? Google provides free Gemini API keys for students (takes 30 seconds):", font=FS, text_color=TEXT).pack(pady=(12, 6))
-            HackerButton(link_box, "🔑 GET FREE GEMINI API KEY (1-CLICK DIRECT LINK)",
+            ctk.CTkLabel(link_box, text="Choose your provider (OpenRouter or Google Gemini):", font=FS, text_color=TEXT).pack(pady=(10, 4))
+            l_row = ctk.CTkFrame(link_box, fg_color="transparent")
+            l_row.pack(fill="x", padx=15, pady=(0, 10))
+            HackerButton(l_row, "🌐 GET OPENROUTER KEY (openrouter.ai)",
+                         lambda: webbrowser.open("https://openrouter.ai/keys"),
+                         height=36, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", fill="x", expand=True, padx=(0, 5))
+            HackerButton(l_row, "🔑 GET GEMINI KEY (Google AI Studio)",
                          lambda: webbrowser.open("https://aistudio.google.com/app/apikey"),
-                         height=42, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(pady=(0, 12), padx=20, fill="x")
+                         height=36, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FS).pack(side="right", fill="x", expand=True, padx=(5, 0))
 
             # Inline API key entry & testing
             setup_card = ctk.CTkFrame(card, fg_color="transparent")
             setup_card.pack(fill="x", padx=30, pady=10)
 
-            ctk.CTkLabel(setup_card, text="PASTE YOUR GEMINI API KEY HERE:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", pady=(5, 3))
+            ctk.CTkLabel(setup_card, text="PASTE OPENROUTER (sk-or-...) OR GEMINI KEY HERE:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", pady=(5, 3))
 
             entry_row = ctk.CTkFrame(setup_card, fg_color="transparent")
             entry_row.pack(fill="x", pady=5)
-            self.ai_quick_api_entry = HackerEntry(entry_row, show="*", placeholder="Paste Gemini API Key (starts with AIzaSy...)...")
+            self.ai_quick_api_entry = HackerEntry(entry_row, show="*", placeholder="Paste OpenRouter Key (sk-or-...) or Gemini Key (AIzaSy...)...")
             self.ai_quick_api_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
             HackerButton(entry_row, "⚡ TEST KEY", self._test_ai_quick_api, height=38, width=110, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN).pack(side="right")
@@ -6162,7 +6426,7 @@ class AutoCoderApp(ctk.CTk):
         ctk.CTkLabel(api_card, text="🔑 GEMINI API KEY SETUP & VERIFICATION", font=FH2, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(14, 4))
         ctk.CTkLabel(
             api_card,
-            text="Add your Gemini API key from Google AI Studio. The system tests the key against Google Cloud to verify live readiness.\nOnce verified, setup is completed and the Smart Interviews Popup Window opens automatically.",
+            text="Add your OpenRouter key (sk-or-...) or Google Gemini key (AIzaSy...). The system automatically detects your provider and validates live uplink readiness.\nOnce verified, setup is completed and the Smart Interviews Popup Window opens automatically.",
             font=FS, text_color=MUTED, justify="left", anchor="w"
         ).pack(fill="x", padx=20, pady=(0, 10))
 
@@ -6174,7 +6438,9 @@ class AutoCoderApp(ctk.CTk):
             import webbrowser
             webbrowser.open("https://aistudio.google.com/app/apikey")
 
-        HackerButton(link_row, "🌐 GET FREE API KEY (Google AI Studio)", _open_ai_studio,
+        HackerButton(link_row, "🌐 GET OPENROUTER KEY (openrouter.ai)", lambda: webbrowser.open("https://openrouter.ai/keys"),
+                     height=28, width=240, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 10))
+        HackerButton(link_row, "🌐 GET GEMINI KEY (Google AI Studio)", _open_ai_studio,
                      height=28, width=240, color=SURFACE, hover=DARK_GREEN, text_col=NEON_GREEN, font=FS).pack(side="left", padx=(0, 10))
 
         def _paste_clipboard():
@@ -6194,7 +6460,7 @@ class AutoCoderApp(ctk.CTk):
         entry_row.pack(fill="x", padx=20, pady=(0, 8))
 
         self.si_api_show_var = ctk.BooleanVar(value=False)
-        self.si_api_entry = HackerEntry(entry_row, placeholder="Paste Gemini API Key (e.g. AIzaSy... or AQ.Ab8RN6I...)", show="•")
+        self.si_api_entry = HackerEntry(entry_row, placeholder="Paste OpenRouter Key (sk-or-...) or Gemini Key (AIzaSy...)", show="•")
         self.si_api_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         cur_key = self.session.get("api_key", "")
@@ -6276,25 +6542,26 @@ class AutoCoderApp(ctk.CTk):
     def _test_and_complete_si_setup(self):
         k = self.si_api_entry.get().strip() if hasattr(self, "si_api_entry") else ""
         if not k:
-            self.si_api_status.configure(text="❌ API Key cannot be empty. Please paste your Gemini API key.", text_color=DANGER)
+            self.si_api_status.configure(text="❌ API Key cannot be empty. Please paste your OpenRouter or Gemini key.", text_color=DANGER)
             return
 
         self.btn_si_test.configure(state="disabled")
-        self.si_api_status.configure(text="🟡 TESTING API KEY WITH GOOGLE GEMINI CLOUD...", text_color="#FFD700")
+        self.si_api_status.configure(text="🟡 TESTING API KEY (OPENROUTER / GEMINI CLOUD)...", text_color="#FFD700")
 
         def _task():
-            ok, msg = validate_gemini_api_key(k)
+            ok, msg = validate_ai_uplink_key(k)
             def _ui():
                 self.btn_si_test.configure(state="normal")
                 if ok:
                     self.session["api_key"] = k
                     save_session(self.session)
                     self.backend = AntigravityBackend(k)
+                    p_name = "OpenRouter" if self.backend.provider == "openrouter" else "Gemini"
                     self.si_api_status.configure(
-                        text="✅ SETUP COMPLETED! Gemini API is active & verified. (Popup window opened!)",
+                        text=f"✅ SETUP COMPLETED! {p_name} AI is active & verified. (Popup window opened!)",
                         text_color=NEON_GREEN
                     )
-                    self.update_status("[+] GEMINI API VALIDATED & SETUP COMPLETED.")
+                    self.update_status(f"[+] {p_name.upper()} API VALIDATED & SETUP COMPLETED.")
                     # Automatically open the Smart Interviews popup window
                     self.after(200, self._open_smart_interviews_popup)
                 else:
