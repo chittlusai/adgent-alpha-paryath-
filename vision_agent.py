@@ -46,6 +46,18 @@ import urllib.request, urllib.error, urllib.parse
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+# Enable Per-Monitor High-DPI Awareness on Windows to eliminate coordinate skew & screenshot distortion
+if os.name == "nt":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
 # ── Dependency Bootstrapper ──────────────────────────────────────────────────
 REQUIRED_PACKAGES = {
     "pynput": "pynput>=1.7.6",
@@ -827,23 +839,32 @@ class AntigravityBackend:
         for _ in range(max(1, len(self.raw_keys))):
             if not self.client: raise RuntimeError("NO_UPLINK")
             sys_inst = (
-                "You are an expert exam solver for technical assessments (Smart Interviews, HackerRank, Mettle, campus tests).\n"
-                "Analyze the provided image carefully to identify the CURRENT, ACTIVE question being answered.\n"
-                "RULES FOR 100% ACCURACY:\n"
-                "1. Identify the EXACT question number from the screen (e.g., 'Question 6' -> Q6, '4.' -> Q4).\n"
-                "2. Read the entire problem statement, code snippet, constraints, and all options (A, B, C, D).\n"
-                "3. Verify each option logically before making a final selection.\n"
-                "4. The very first line of your response MUST be formatted as:\n"
-                "   Q<number>: [Option Letter]  (e.g. Q6: C or Q4: B)\n"
+                "You are an elite, 100% accurate technical exam solver for assessments (Smart Interviews, HackerRank, Mettle, campus placement tests).\n"
+                "Analyze the provided image with absolute precision.\n\n"
+                "RULES FOR 100% PERFECT ACCURACY:\n"
+                "1. Identify the question number and text accurately.\n"
+                "2. If the question includes code (C, C++, Java, Python, SQL, DSA):\n"
+                "   - Mentally trace the code execution line by line.\n"
+                "   - Carefully evaluate pointers, recursion, 0-based indexing, operator precedence, loops, and conditions.\n"
+                "3. Read ALL choices (A, B, C, D):\n"
+                "   - If choices are labeled 1, 2, 3, 4 or radio buttons without letters:\n"
+                "     Choice 1 / 1st radio -> A\n"
+                "     Choice 2 / 2nd radio -> B\n"
+                "     Choice 3 / 3rd radio -> C\n"
+                "     Choice 4 / 4th radio -> D\n"
+                "4. Format the first line(s) of your answer strictly as:\n"
+                "   Q<number>: [Option Letter]  (e.g. Q4: B or Q1: C)\n"
+                "   If multiple questions are visible on screen, output an answer line for EACH visible question:\n"
+                "   Q1: A\n"
+                "   Q2: C\n"
                 "5. Follow with:\n"
-                "   🎯 CORRECT ANSWER: [Option Letter] <Full text of the correct option>\n"
-                "   💡 EXPLANATION: <1-2 sentences of proof explaining why this option is correct>\n"
-                "If multiple questions are visible, prioritize the one in active focus/scrolled into primary view."
+                "   🎯 CORRECT ANSWER: [Option Letter] <Full text of the verified option>\n"
+                "   💡 EXPLANATION: <1-2 sentences of logical proof explaining why this option is correct>\n"
             )
-            user_prompt = "Carefully solve the active test question in this screenshot and provide the verified correct option."
+            user_prompt = "Carefully solve all active test question(s) in this screenshot and provide the verified correct option letters."
             try:
                 if self.provider == "openrouter":
-                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1, max_tokens=250)
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1, max_tokens=450)
                 else:
                     r = self._generate_with_fallback(contents=[user_prompt, image], config={"system_instruction": sys_inst, "temperature": 0.1})
                     res = r.text
@@ -859,22 +880,22 @@ class AntigravityBackend:
             if not self.client: raise RuntimeError("NO_UPLINK")
             sys_inst = (
                 "You are an elite exam proctor analyzing multiple frames recorded over 3 seconds of a test screen.\n"
-                "The user scrolled through the page during the 3 seconds to reveal all parts of the question and options without anything cut off.\n"
-                "Reconstruct the complete question and all options (A, B, C, D) across the frames.\n"
-                "RULES FOR 100% ACCURACY:\n"
-                "1. Identify the EXACT question number from the screen (e.g., 'Question 6' -> Q6, '4.' -> Q4).\n"
-                "2. Read the entire problem statement, code snippet, constraints, and all options (A, B, C, D).\n"
+                "The user scrolled through the test page to reveal all parts of the question, code snippet, and all options (A, B, C, D).\n"
+                "Reconstruct the complete question and all options across the frames.\n\n"
+                "RULES FOR 100% PERFECT ACCURACY:\n"
+                "1. If code is present, trace execution line by line to calculate the exact output.\n"
+                "2. Map choices 1, 2, 3, 4 to A, B, C, D respectively.\n"
                 "3. The first line(s) of your output MUST state the question number and correct option letter:\n"
-                "   Q<number>: [Option Letter]  (e.g. Q4: B or Q6: C)\n"
+                "   Q<number>: [Option Letter]  (e.g. Q4: B)\n"
+                "   If multiple questions were captured across frames, list each one (e.g. Q1: B, Q2: D).\n"
                 "4. Follow with:\n"
                 "   🎯 CORRECT ANSWER: [Option Letter] <Full text of the correct option>\n"
                 "   💡 EXPLANATION: <1-2 sentences of proof explaining why this option is correct>\n"
-                "Be 100% accurate, definitive, and direct."
             )
-            user_prompt = "Read the question and options across these 3-second recording frames and output the exact active question number and correct option letter (e.g. Q4: B)."
+            user_prompt = "Read the question and options across these 3-second recording frames and output the exact active question number and correct option letter."
             try:
                 if self.provider == "openrouter":
-                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, images=frames[:6], temperature=0.1, max_tokens=250)
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, images=frames[:6], temperature=0.1, max_tokens=450)
                 else:
                     contents = [user_prompt] + frames[:6]
                     r = self._generate_with_fallback(contents=contents, config={"system_instruction": sys_inst, "temperature": 0.1})
@@ -1223,8 +1244,16 @@ def perform_system_update(log_callback=None):
     user_roll = str(curr_sess.get("roll", "")).strip().upper()
     only_us_whitelist = {
         "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
-        "26B11DS407", "26B11DS507", "26B11DS529", "26B11DS678", "26B11EC141"
+        "26B11DS407", "26B11DS507", "26B11DS514", "26B11DS529", "26B11DS678", "26B11EC141"
     }
+    try:
+        grp_data = get_user_groups()
+        for gname, ginfo in grp_data.items():
+            if "ONLY US" in str(gname).upper():
+                for m in ginfo.get("members", []):
+                    only_us_whitelist.add(str(m).strip().upper())
+    except Exception:
+        pass
     is_group_authorized = (user_roll in only_us_whitelist)
 
     if isinstance(bc, dict) and bc.get("version"):
@@ -3479,7 +3508,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 self.parent_popup.withdraw()
                 self.parent_popup.update_idletasks()
             except Exception: pass
-        time.sleep(0.2)
+        time.sleep(0.35)
         try:
             img = robust_screen_capture()
         finally:
@@ -3533,7 +3562,7 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 self.parent_popup.withdraw()
                 self.parent_popup.update_idletasks()
             except Exception: pass
-        time.sleep(0.15)
+        time.sleep(0.3)
 
         def _on_snip_done(img):
             self.deiconify()
@@ -3597,10 +3626,17 @@ class TinyMCQWindow(ctk.CTkToplevel):
     def start_3s_clip_recording(self):
         """
         Records a 3-second clip of the screen across 5 frames.
-        Allows student to scroll through test page so nothing is cut off.
+        Temporarily moves the HUD indicator to the extreme title bar edge so it never covers exam questions!
         """
         self._clear_for_new_capture("Recording 3-Sec Clip")
         self._start_buffering("🔴 RECORDING 3s CLIP...")
+        
+        # Dock HUD to top-left screen margin (height=32) so exam page is 100% uncovered
+        orig_w = max(self.winfo_width(), 320)
+        orig_h = max(self.winfo_height(), 185)
+        sw = self.winfo_screenwidth()
+        self.geometry(f"280x32+{sw-300}+5")
+        
         if self.parent_popup:
             try:
                 self.parent_popup.withdraw()
@@ -3618,14 +3654,14 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 remaining = max(0.0, total_duration - (time.time() - start_t))
                 def _update_rec(rem=remaining):
                     self.lbl_buffer_anim.configure(
-                        text=f"🔴 RECORDING: {rem:.1f}s (Scroll page now!)",
+                        text=f"🔴 REC {rem:.1f}s (Scroll page now!)",
                         text_color="#ff4444"
                     )
                     self.buffer_prog_bar.set(1.0 - (rem / total_duration))
                 self.after(0, _update_rec)
 
                 try:
-                    img = ImageGrab.grab()
+                    img = robust_screen_capture()
                     frames.append(img)
                 except Exception:
                     pass
@@ -3633,10 +3669,16 @@ class TinyMCQWindow(ctk.CTkToplevel):
                 time.sleep(frame_interval)
 
             def _start_think():
+                # Restore HUD window back to normal reading size
+                self.geometry(f"{orig_w}x{orig_h}+{sw-orig_w-25}+30")
+                self.deiconify()
+                self.lift()
                 if self.parent_popup:
-                    try: self.parent_popup.deiconify()
+                    try:
+                        self.parent_popup.deiconify()
+                        self.parent_popup.lift()
                     except Exception: pass
-                    self.lift()
+                self.lift()
                 self._start_buffering("AI THINKING (ANALYZING FULL 3s CLIP)...")
             self.after(0, _start_think)
 
@@ -4467,6 +4509,13 @@ class OnboardingWizard(ctk.CTk):
             self.user_data["roll"] = "ADMIN_001"
             self.user_data["branch"] = "MAINFRAME"
             self.user_data["university"] = "CENTRAL SECURITY"
+            # Preserve existing API key and OpenRouter model preference across logins
+            prev_key = self.session.get("api_key", "")
+            if prev_key:
+                self.user_data["api_key"] = prev_key
+            prev_m = self.session.get("openrouter_model", "")
+            if prev_m:
+                self.user_data["openrouter_model"] = prev_m
             self._render_step_welcome()
         else:
             self.adm_err.configure(text="ACCESS DENIED: INVALID MASTER PASSPHRASE.")
@@ -5197,6 +5246,8 @@ class AutoCoderApp(ctk.CTk):
         msg = self.admin_upd_msg_entry.get().strip() or "New system update available."
         url = getattr(self, "admin_upd_url_entry", None)
         url_val = url.get().strip() if url else ""
+        if not url_val or url_val.endswith("."):
+            url_val = GITHUB_BINARY_URL
         show_pop = self.admin_upd_popup_var.get()
         target_aud = getattr(self, "admin_target_audience_var", None)
         target_audience = target_aud.get() if target_aud else "ALL USERS (Entire Campus)"
@@ -5212,6 +5263,7 @@ class AutoCoderApp(ctk.CTk):
         }
         res = _firebase_request("/system_broadcast", method="PUT", data=payload)
         _firebase_request("/system_config/latest_version", method="PUT", data=v)
+        _firebase_request("/system_config/admin_latest_version", method="PUT", data=v)
         _firebase_request("/system_config/changelog", method="PUT", data=msg)
         if url_val:
             _firebase_request("/system_config/download_url", method="PUT", data=url_val)
@@ -5418,8 +5470,16 @@ class AutoCoderApp(ctk.CTk):
 
         only_us_whitelist = {
             "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
-            "26B11DS407", "26B11DS507", "26B11DS529", "26B11DS678", "26B11EC141"
+            "26B11DS407", "26B11DS507", "26B11DS514", "26B11DS529", "26B11DS678", "26B11EC141"
         }
+        try:
+            groups_cache = getattr(self, "user_groups_cache", None) or get_user_groups()
+            for gname, ginfo in groups_cache.items():
+                if "ONLY US" in str(gname).upper():
+                    for m in ginfo.get("members", []):
+                        only_us_whitelist.add(str(m).strip().upper())
+        except Exception:
+            pass
         # Whitelisted 'only us' members are eligible if target contains 'only us' or group targeting
         if "ONLY US" in aud_str or "SMART INTERVIEWS" in aud_str:
             if user_roll in only_us_whitelist:
@@ -5625,7 +5685,7 @@ class AutoCoderApp(ctk.CTk):
             self.frames["LIVE_MONITOR"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
             self._build_live_monitor_tab(self.frames["LIVE_MONITOR"])
 
-            self.frames["DB_ADMIN"] = ctk.CTkFrame(self.tab_container, fg_color="transparent")
+            self.frames["DB_ADMIN"] = ctk.CTkScrollableFrame(self.tab_container, fg_color="transparent")
             self._build_admin_tab(self.frames["DB_ADMIN"])
 
         if self.has_smart_interviews_access:
@@ -6155,7 +6215,7 @@ class AutoCoderApp(ctk.CTk):
         tree_frame.pack(fill="both", expand=True, padx=10, pady=4)
 
         cols = ("Roll", "Name", "Branch", "Status", "Password", "Phone")
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Hacker.Treeview", height=12)
+        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Hacker.Treeview", height=8)
         self.tree.heading("Roll", text="ROLL NO")
         self.tree.heading("Name", text="FULL NAME")
         self.tree.heading("Branch", text="BRANCH")
@@ -6263,17 +6323,21 @@ class AutoCoderApp(ctk.CTk):
         ctk.CTkCheckBox(b_opts, text="Trigger Instant Pop-up Modal on Student Screens", variable=self.admin_upd_popup_var,
                         fg_color=DARK_GREEN, hover_color=NEON_GREEN, text_color=TEXT, font=FS).pack(side="left")
 
-        b_act = ctk.CTkFrame(b_card, fg_color="transparent")
-        b_act.pack(fill="x", padx=15, pady=(4, 8))
+        b_act1 = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_act1.pack(fill="x", padx=15, pady=(6, 4))
 
-        HackerButton(b_act, "📢 BROADCAST UPDATE TO AUDIENCE", self._admin_broadcast_update, height=34, color=DARK_GREEN, text_col=BG).pack(side="left", padx=(0, 10))
-        HackerButton(b_act, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
-        HackerButton(b_act, "⏪ REVOKE LAST UPDATE", self._admin_revoke_latest_update, height=34, color=SURFACE, text_col=WARNING, border_color=WARNING).pack(side="left", padx=(0, 10))
-        HackerButton(b_act, "🗑️ CLEAR UPDATE HISTORY", self._clear_update_history_action, height=34, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
-        HackerButton(b_act, "📜 VIEW RELEASE HISTORY", lambda: self.show_frame("UPDATE_CENTER"), height=34, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left")
+        HackerButton(b_act1, "📢 BROADCAST UPDATE TO AUDIENCE", self._admin_broadcast_update, height=38, width=280, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(side="left", padx=(0, 10))
+        HackerButton(b_act1, "🛑 CLEAR BROADCAST", self._admin_clear_broadcast, height=38, color=SURFACE, text_col=DANGER, border_color=DANGER).pack(side="left", padx=(0, 10))
+        HackerButton(b_act1, "⏪ REVOKE LAST UPDATE", self._admin_revoke_latest_update, height=38, color=SURFACE, text_col=WARNING, border_color=WARNING).pack(side="left")
 
-        self.admin_broadcast_status = ctk.CTkLabel(b_act, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=MUTED, anchor="w")
-        self.admin_broadcast_status.pack(side="left", padx=15, fill="x", expand=True)
+        b_act2 = ctk.CTkFrame(b_card, fg_color="transparent")
+        b_act2.pack(fill="x", padx=15, pady=(4, 10))
+
+        HackerButton(b_act2, "📜 VIEW RELEASE HISTORY", lambda: self.show_frame("UPDATE_CENTER"), height=30, color=SURFACE, text_col=NEON_GREEN, border_color=DARK_GREEN, font=FS).pack(side="left", padx=(0, 8))
+        HackerButton(b_act2, "🗑️ CLEAR UPDATE HISTORY", self._clear_update_history_action, height=30, color=SURFACE, text_col=DANGER, border_color=DANGER, font=FS).pack(side="left", padx=(0, 15))
+
+        self.admin_broadcast_status = ctk.CTkLabel(b_act2, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=NEON_GREEN, anchor="w")
+        self.admin_broadcast_status.pack(side="left", fill="x", expand=True)
 
         self.after(500, self._refresh_admin_target_options)
         self.after(800, self._load_current_broadcast_info)
@@ -6416,7 +6480,9 @@ class AutoCoderApp(ctk.CTk):
 
     def _admin_add(self):
         roll = self.edt_roll.get().strip().upper()
-        if not roll: return
+        if not roll:
+            messagebox.showwarning("MISSING ROLL", "Please enter a Roll Number to add student.")
+            return
         data = {
             "name": self.edt_name.get().strip(),
             "branch": self.edt_branch.get().strip(),
@@ -6429,10 +6495,13 @@ class AutoCoderApp(ctk.CTk):
         save_local_db(self.admin_db)
         self._refresh_admin_tree()
         self.update_status(f"[+] Added user {roll} to Firebase Cloud")
+        messagebox.showinfo("USER ADDED", f"Student '{roll}' ({data['name']}) successfully created in Firebase Cloud!")
 
     def _admin_update(self):
         roll = self.edt_roll.get().strip().upper()
-        if not roll: return
+        if not roll:
+            messagebox.showwarning("MISSING ROLL", "Please select or enter a Roll Number to update.")
+            return
         patch = {
             "name": self.edt_name.get().strip(),
             "branch": self.edt_branch.get().strip(),
@@ -6448,6 +6517,7 @@ class AutoCoderApp(ctk.CTk):
         save_local_db(self.admin_db)
         self._refresh_admin_tree()
         self.update_status(f"[*] Updated user {roll} in Firebase Cloud")
+        messagebox.showinfo("USER UPDATED", f"Student '{roll}' successfully updated in Firebase Cloud!")
 
     def _admin_delete(self):
         roll = self.edt_roll.get().strip().upper()
