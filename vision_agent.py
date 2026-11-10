@@ -598,13 +598,18 @@ class AntigravityBackend:
         return base + fmt_inst + sol_inst + "STRICT: Output ONLY executable code. No markdown fences. No explanations. Start line 1 with code."
 
     def _clean(self, code):
+        if not code:
+            return ""
         code = str(code).strip()
         if "<think>" in code and "</think>" in code:
             code = re.sub(r'<think>.*?</think>', '', code, flags=re.DOTALL).strip()
-        if code.startswith("```"):
+        fence_match = re.search(r'```(?:[a-zA-Z0-9_\+\#-]*\n)?([\s\S]*?)```', code)
+        if fence_match:
+            code = fence_match.group(1).strip()
+        else:
             lines = code.splitlines()
-            if lines and lines[0].startswith("```"):  lines = lines[1:]
-            if lines and lines[-1].startswith("```"): lines = lines[:-1]
+            while lines and lines[0].strip().startswith("```"): lines.pop(0)
+            while lines and lines[-1].strip().startswith("```"): lines.pop()
             code = "\n".join(lines).strip()
         return code
 
@@ -885,16 +890,23 @@ class AntigravityBackend:
         for _ in range(max(1, len(self.raw_keys))):
             if not self.client: raise RuntimeError("NO_UPLINK")
             sys_inst = (
-                f"You are a competitive programming world champion solving a Smart Interviews coding problem in {lang}.\n"
-                "Analyze the coding question in this screenshot: problem statement, input/output formats, constraints, sample test cases.\n"
-                f"Write the complete, 100% optimal and runnable solution in {lang} that passes all visible and hidden test cases.\n"
-                "STRICT RULES:\n"
-                f"- Output ONLY executable code in {lang}.\n"
-                "- Do NOT include any markdown code fences (no ```).\n"
-                "- Do NOT include conversational text, notes, or explanations.\n"
-                "- The very first line of your response MUST be runnable code or standard imports."
+                f"You are a competitive programming world champion solving this coding assessment problem in {lang}.\n"
+                "Analyze the problem screenshot with extreme precision:\n"
+                "- Full problem statement and logic\n"
+                "- Input format (check if T test cases are given or single test case)\n"
+                "- Output format (exact case, spaces, and newlines)\n"
+                "- Constraints (N, K, memory and time limits: write O(N) or O(N log N) optimal solutions)\n"
+                "- Sample test cases\n\n"
+                "CRITICAL ASSESSMENT & PLATFORM RULES:\n"
+                "1. ALWAYS read input from Standard Input (stdin / input() / sys.stdin / cin / Scanner) and write to Standard Output (stdout / print / cout / System.out.println).\n"
+                "2. If T test cases are mentioned in the input format, read T first and loop T times.\n"
+                "3. In Python: include `import sys` if needed; for large inputs use `sys.stdin.read().split()`.\n"
+                "4. In C++: use `#include <iostream>`, `#include <vector>`, `#include <string>`, `using namespace std;` and `int main()`.\n"
+                "5. In Java: use `public class Main` or `public class Solution` with `Scanner` or `BufferedReader`.\n"
+                "6. Output ONLY runnable, clean executable code. Do NOT output conversational text, preambles, or markdown.\n"
+                "7. The very first line MUST be runnable code or standard imports."
             )
-            user_prompt = f"Read the coding problem on this screen and write the optimal, complete solution in {lang}."
+            user_prompt = f"Read the coding problem on this screen and write the optimal, complete solution in {lang} that passes 100% of visible and hidden test cases."
             try:
                 if self.provider == "openrouter":
                     res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1, max_tokens=2500)
@@ -3361,12 +3373,17 @@ class TinyMCQWindow(ctk.CTkToplevel):
         self.full_details_text = raw_text
         self.answers_data = []
 
-        lines = raw_text.splitlines()
+        # 1. Clean think tags if present
+        clean_text = raw_text or ""
+        if "<think>" in clean_text and "</think>" in clean_text:
+            clean_text = re.sub(r'<think>.*?</think>', '', clean_text, flags=re.DOTALL).strip()
+
+        lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
         found_map = {}
 
+        # Stage 1: Explicit Q<num>: <Option> or <num>. <Option> at start of line
         for line in lines:
-            line = line.strip()
-            m = re.search(r'(?:Q(?:uestion)?\s*(\d+)|\b(\d+)\b)[\s.:)-]*[\[(]?([A-Da-d])[\])]?', line, re.I)
+            m = re.match(r'^(?:Q(?:uestion)?\s*(\d+)|(\d+))[\s.:\)-]+\[?([A-Da-d])\]?(?:\s|$|[^\w])', line, re.I)
             if m:
                 q_num = m.group(1) or m.group(2)
                 opt = m.group(3).upper()
@@ -3374,15 +3391,21 @@ class TinyMCQWindow(ctk.CTkToplevel):
                     found_map[q_num] = opt
                     self.answers_data.append((f"Q{q_num}", opt))
 
+        # Stage 2: Check for explicit CORRECT ANSWER / ANSWER / OPTION statement
         if not self.answers_data:
-            corr_matches = re.findall(r'CORRECT ANSWER:\s*\[?([A-Da-d])\]?', raw_text, re.I)
-            for idx, c in enumerate(corr_matches, start=1):
-                self.answers_data.append((f"Q{idx}", c.upper()))
+            corr_matches = re.findall(r'(?:CORRECT\s*ANSWER|THE\s*CORRECT\s*OPTION\s*IS|ANSWER\s*IS|ANSWER|OPTION)[\s*:]+\[?([A-Da-d])\]?(?:\b|[^\w])', clean_text, re.I)
+            if corr_matches:
+                q_match = re.search(r'\bQ(?:uestion)?\s*(\d+)\b', clean_text, re.I)
+                q_prefix = f"Q{q_match.group(1)}" if q_match else "Q1"
+                self.answers_data.append((q_prefix, corr_matches[0].upper()))
 
+        # Stage 3: Standalone Option Letter (A, B, C, D)
         if not self.answers_data:
-            letters = re.findall(r'\b([A-D])\b', raw_text.upper())
-            for idx, let in enumerate(letters[:4], start=1):
-                self.answers_data.append((f"Q{idx}", let))
+            standalones = re.findall(r'\b([A-D])\b', clean_text)
+            if standalones:
+                q_match = re.search(r'\bQ(?:uestion)?\s*(\d+)\b', clean_text, re.I)
+                q_prefix = f"Q{q_match.group(1)}" if q_match else "Q1"
+                self.answers_data.append((q_prefix, standalones[0]))
 
         for w in self.answers_container.winfo_children(): w.destroy()
 
@@ -3884,6 +3907,12 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             font=("Consolas", 9), text_color="#cccccc", fg_color="#008F11", hover_color="#00FF41"
         ).pack(side="left", padx=4, pady=6)
 
+        self.fast_paste_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opt_bar, text="⚡ Fast Paste (Ctrl+V)", variable=self.fast_paste_var,
+            font=("Consolas", 9, "bold"), text_color="#00FF41", fg_color="#008F11", hover_color="#00FF41"
+        ).pack(side="left", padx=6, pady=6)
+
         toolbar = ctk.CTkFrame(self.code_frame, fg_color="#0d1f0d", corner_radius=6)
         toolbar.pack(fill="x", pady=(0, 6), padx=2)
 
@@ -4111,6 +4140,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
         Arms the cursor detector.
         Waits for the user to click into their code editor window.
         WITHOUT putting the cursor in the editor, it will NOT write!
+        Minimizes window so editor is visible, and automatically restores on completion (like Offline Mode).
         """
         if not code or not code.strip():
             self._set_code_status("❌ NO CODE TO WRITE. Capture a problem first.", color="#ff4444")
@@ -4123,13 +4153,25 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
 
         self._set_code_status(
             "🟡 WAITING FOR CURSOR: Click inside your code editor now!\n"
-            "⚠️ Code will NOT write until you place cursor in the editor. (Press ESC to cancel)",
+            "⚠️ Window minimized. Code writes ONLY after you click editor. (Press ESC to cancel)",
             color="#FFD700"
         )
+
+        # Minimize popup like in Offline Mode so user can see and click their editor
+        self.after(50, self.iconify)
 
         threading.Thread(target=self._cursor_wait_and_type_thread, args=(code,), daemon=True).start()
 
     def _cursor_wait_and_type_thread(self, code):
+        def _restore_window():
+            try:
+                self.deiconify()
+                self.lift()
+                self.attributes("-topmost", True)
+                self.focus_force()
+            except Exception:
+                pass
+
         click_event = threading.Event()
 
         def on_click(x, y, button, pressed):
@@ -4157,6 +4199,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
         except Exception as e:
             self._set_code_status(f"❌ MOUSE HOOK ERROR: {e}", color="#ff4444")
             self.is_waiting_for_cursor = False
+            self.after(0, _restore_window)
             return
 
         # Wait for user to place cursor inside the editor
@@ -4166,6 +4209,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
                 except Exception: pass
                 self._set_code_status("🛑 CANCELED: Cursor wait aborted by user (ESC).", color="#ff5555")
                 self.is_waiting_for_cursor = False
+                self.after(0, _restore_window)
                 return
             time.sleep(0.04)
 
@@ -4176,6 +4220,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
 
         if self.abort_flag:
             self.is_waiting_for_cursor = False
+            self.after(0, _restore_window)
             return
 
         # Cursor placement detected!
@@ -4188,6 +4233,7 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
         if self.abort_flag:
             self.is_typing = False
             self._set_code_status("🛑 ABORTED BEFORE WRITING.", color="#ff5555")
+            self.after(0, _restore_window)
             return
 
         # Clear existing boilerplate if selected
@@ -4199,15 +4245,38 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
             self.app.keyboard.press(Key.backspace); self.app.keyboard.release(Key.backspace)
             time.sleep(0.25)
 
-        # Write code with human cadence and anti-cheat typo simulation
+        # Write code (either via Fast Paste Ctrl+V or Human Cadence Typer)
         self._set_code_status("🟢 INJECTING CODE INTO EDITOR... (Press ESC to cancel)", color="#00FF41")
-        self._type_code_into_active_editor(code)
+        if getattr(self, "fast_paste_var", None) and self.fast_paste_var.get():
+            self._inject_via_clipboard(code)
+        else:
+            self._type_code_into_active_editor(code)
 
         self.is_typing = False
         if not self.abort_flag:
             self._set_code_status("✅ CODE WRITTEN SUCCESSFULLY IN EDITOR!", color="#00FF41")
         else:
             self._set_code_status("🛑 TYPING STOPPED BY USER (ESC).", color="#ff5555")
+
+        # Automatically restore and reopen window like in Offline Mode!
+        time.sleep(0.35)
+        self.after(0, _restore_window)
+
+    def _inject_via_clipboard(self, code):
+        """Direct paste preserving 100% exact syntax, indentation, and structure with zero auto-close bugs."""
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(code)
+            self.update()
+            time.sleep(0.12)
+            self.app.keyboard.press(Key.ctrl)
+            self.app.keyboard.press("v")
+            self.app.keyboard.release("v")
+            self.app.keyboard.release(Key.ctrl)
+            time.sleep(0.2)
+            return True
+        except Exception:
+            return False
 
     def _type_code_into_active_editor(self, code):
         lines = code.splitlines()
@@ -4230,9 +4299,6 @@ class SmartInterviewsPopup(ctk.CTkToplevel):
                     time.sleep(random.uniform(0.04, 0.07))
 
                 self.app.keyboard.type(ch)
-                if ch in "([{\"'":
-                    self.app.keyboard.press(Key.delete)
-                    self.app.keyboard.release(Key.delete)
                 time.sleep(random.uniform(char_min, char_max))
 
             if idx < len(lines) - 1 and not self.abort_flag:
