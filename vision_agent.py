@@ -608,7 +608,7 @@ class AntigravityBackend:
             code = "\n".join(lines).strip()
         return code
 
-    def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1, preferred_model=None):
+    def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1, preferred_model=None, max_tokens=None):
         """Execute multimodal or text completion request through OpenRouter API gateway."""
         cur_key = self._get_current_key()
         has_vision = (image is not None) or (images is not None and len(images) > 0)
@@ -662,13 +662,17 @@ class AntigravityBackend:
         else:
             messages.append({"role": "user", "content": prompt})
 
+        # Cap max_tokens to prevent OpenRouter from refusing requests on accounts with low starter credits
+        effective_max_tokens = max_tokens if max_tokens is not None else (350 if has_vision else 2048)
+
         last_err = None
         for model_name in models_to_try:
             try:
                 payload = {
                     "model": model_name,
                     "messages": messages,
-                    "temperature": temperature
+                    "temperature": temperature,
+                    "max_tokens": effective_max_tokens
                 }
                 req_bytes = json.dumps(payload).encode("utf-8")
                 req = urllib.request.Request(
@@ -699,13 +703,13 @@ class AntigravityBackend:
                     if self._rotate_key():
                         cur_key = self._get_current_key()
                         continue
-                if he.code in (404, 502, 503, 504, 429):
+                if he.code in (404, 502, 503, 504, 429, 402):
                     continue
                 raise last_err
             except Exception as e:
                 last_err = e
                 err_str = str(e)
-                if any(x in err_str for x in ["404", "503", "429", "timeout", "timed out"]):
+                if any(x in err_str for x in ["404", "503", "429", "402", "timeout", "timed out"]):
                     continue
                 raise e
 
@@ -834,7 +838,7 @@ class AntigravityBackend:
             user_prompt = "Carefully solve the active test question in this screenshot and provide the verified correct option."
             try:
                 if self.provider == "openrouter":
-                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1)
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1, max_tokens=250)
                 else:
                     r = self._generate_with_fallback(contents=[user_prompt, image], config={"system_instruction": sys_inst, "temperature": 0.1})
                     res = r.text
@@ -865,7 +869,7 @@ class AntigravityBackend:
             user_prompt = "Read the question and options across these 3-second recording frames and output the exact active question number and correct option letter (e.g. Q4: B)."
             try:
                 if self.provider == "openrouter":
-                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, images=frames[:6], temperature=0.1)
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, images=frames[:6], temperature=0.1, max_tokens=250)
                 else:
                     contents = [user_prompt] + frames[:6]
                     r = self._generate_with_fallback(contents=contents, config={"system_instruction": sys_inst, "temperature": 0.1})
@@ -893,7 +897,7 @@ class AntigravityBackend:
             user_prompt = f"Read the coding problem on this screen and write the optimal, complete solution in {lang}."
             try:
                 if self.provider == "openrouter":
-                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1)
+                    res = self._openrouter_call(prompt=user_prompt, sys_inst=sys_inst, image=image, temperature=0.1, max_tokens=2500)
                 else:
                     r = self._generate_with_fallback(contents=[user_prompt, image], config={"system_instruction": sys_inst, "temperature": 0.1})
                     res = r.text
