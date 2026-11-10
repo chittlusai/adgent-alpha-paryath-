@@ -528,11 +528,12 @@ class AntigravityBackend:
     1. OpenRouter API (sk-or-...) - OpenAI compatible with Gemini 2.0 Flash, Llama 3.2 Vision, GPT-4o-mini
     2. Google Gemini API (AIzaSy...) - Official Google GenAI SDK with multi-model auto-failover
     """
-    def __init__(self, api_key=""):
+    def __init__(self, api_key="", preferred_model=None):
         self.raw_keys = [k.strip() for k in str(api_key).replace(";", ",").split(",") if k.strip()]
         self.key_idx  = 0
         self.client   = None
         self.provider = "gemini"
+        self.preferred_model = preferred_model
         if self.raw_keys:
             self._init_client()
 
@@ -607,28 +608,38 @@ class AntigravityBackend:
             code = "\n".join(lines).strip()
         return code
 
-    def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1):
+    def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1, preferred_model=None):
         """Execute multimodal or text completion request through OpenRouter API gateway."""
         cur_key = self._get_current_key()
         has_vision = (image is not None) or (images is not None and len(images) > 0)
+        pref = (preferred_model or getattr(self, "preferred_model", None) or "").strip()
 
         if has_vision:
-            models_to_try = [
-                "google/gemini-2.0-flash-001",
-                "google/gemini-flash-1.5",
-                "meta-llama/llama-3.2-11b-vision-instruct:free",
+            base_models = [
+                "google/gemini-2.5-flash",
+                "google/gemini-2.5-flash-lite",
                 "openai/gpt-4o-mini",
-                "google/gemini-2.0-flash-exp:free",
-                "qwen/qwen-2.5-vl-72b-instruct"
+                "google/gemini-flash-latest",
+                "qwen/qwen2.5-vl-72b-instruct",
+                "nvidia/nemotron-3.5-super-vl:free",
+                "google/gemini-2.5-pro"
             ]
         else:
-            models_to_try = [
-                "google/gemini-2.0-flash-001",
+            base_models = [
+                "google/gemini-2.5-flash",
                 "qwen/qwen-2.5-coder-32b-instruct",
-                "meta-llama/llama-3.3-70b-instruct",
+                "deepseek/deepseek-chat",
+                "google/gemini-2.5-flash-lite",
                 "openai/gpt-4o-mini",
-                "deepseek/deepseek-chat"
+                "google/gemini-2.5-pro"
             ]
+
+        models_to_try = []
+        if pref and pref != "Auto-Best (Recommended)":
+            models_to_try.append(pref)
+        for m in base_models:
+            if m not in models_to_try:
+                models_to_try.append(m)
 
         messages = []
         if sys_inst:
@@ -5022,7 +5033,7 @@ class AutoCoderApp(ctk.CTk):
         super().__init__()
         _clean_stray_desktop_db()
         self.session     = session
-        self.backend     = AntigravityBackend(session.get("api_key",""))
+        self.backend     = AntigravityBackend(session.get("api_key",""), preferred_model=session.get("openrouter_model", "Auto-Best (Recommended)"))
         self.keyboard    = KController()
         self.is_typing   = False
         self.stop_typing = False
@@ -6485,6 +6496,30 @@ class AutoCoderApp(ctk.CTk):
                                         height=38, width=220, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB)
         self.btn_si_test.pack(side="left")
 
+        # OpenRouter Preferred Model Selector
+        model_row = ctk.CTkFrame(api_card, fg_color="transparent")
+        model_row.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(model_row, text="PREFERRED OPENROUTER MODEL:", font=FS, text_color=NEON_GREEN).pack(side="left", padx=(0, 10))
+        self.si_or_model_var = ctk.StringVar(value=self.session.get("openrouter_model", "Auto-Best (Recommended)"))
+        self.si_or_menu = ctk.CTkOptionMenu(
+            model_row,
+            variable=self.si_or_model_var,
+            values=[
+                "Auto-Best (Recommended)",
+                "google/gemini-2.5-flash",
+                "google/gemini-2.5-flash-lite",
+                "openai/gpt-4o-mini",
+                "qwen/qwen2.5-vl-72b-instruct",
+                "nvidia/nemotron-3.5-super-vl:free",
+                "qwen/qwen-2.5-coder-32b-instruct",
+                "deepseek/deepseek-chat"
+            ],
+            command=self._on_openrouter_model_changed,
+            fg_color=SURFACE, text_color=NEON_GREEN, button_color=DARK_GREEN, font=FS, width=280
+        )
+        self.si_or_menu.pack(side="left")
+
         # Live Status Banner for API
         self.si_api_status_card = ctk.CTkFrame(api_card, fg_color=CARD, border_width=1, border_color=BORDER, corner_radius=4)
         self.si_api_status_card.pack(fill="x", padx=20, pady=(0, 14))
@@ -6555,7 +6590,7 @@ class AutoCoderApp(ctk.CTk):
                 if ok:
                     self.session["api_key"] = k
                     save_session(self.session)
-                    self.backend = AntigravityBackend(k)
+                    self.backend = AntigravityBackend(k, preferred_model=self.session.get("openrouter_model", "Auto-Best (Recommended)"))
                     p_name = "OpenRouter" if self.backend.provider == "openrouter" else "Gemini"
                     self.si_api_status.configure(
                         text=f"✅ SETUP COMPLETED! {p_name} AI is active & verified. (Popup window opened!)",
@@ -6571,6 +6606,13 @@ class AutoCoderApp(ctk.CTk):
                     )
             self.after(0, _ui)
         threading.Thread(target=_task, daemon=True).start()
+
+    def _on_openrouter_model_changed(self, chosen_model):
+        self.session["openrouter_model"] = chosen_model
+        save_session(self.session)
+        if hasattr(self, "backend") and self.backend:
+            self.backend.preferred_model = chosen_model
+        self.update_status(f"[+] OPENROUTER MODEL: {chosen_model}")
 
     # ── PROFILE & SECURITY TAB ───────────────────────────────────────────────
     def _build_profile_tab(self, p):
