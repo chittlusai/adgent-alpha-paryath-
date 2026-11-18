@@ -1016,7 +1016,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v4.1"
+APP_VERSION = "v4.2"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -1835,7 +1835,8 @@ class AppUpdateModal(ctk.CTkToplevel):
             self.info_lbl.configure(text=text)
             self.btn_start.configure(text=btn_txt, fg_color=btn_col)
             if is_newer:
-                self.log_box.insert("end", f"[*] Cloud Update Available: {latest_v}\n[*] Release Line: {changelog}\n[*] Click '⚡ UPDATE TO NEW VERSION' to begin synchronization.\n")
+                self.log_box.insert("end", f"[*] Cloud Update Available: {latest_v}\n[*] Release Line: {changelog}\n[*] Auto-installing update in background...\n")
+                self.after(300, self._start_update)
             else:
                 self.log_box.insert("end", f"[*] You are already running the latest version ({APP_VERSION}).\n[*] Click '{btn_txt}' to verify system integrity & shortcuts.\n")
         self.after(0, _ui)
@@ -4520,15 +4521,15 @@ class OnboardingWizard(ctk.CTk):
         lock_info = get_system_lock_info()
         if lock_info.get("enabled"):
             notice = lock_info.get("notice") or (
-                "NOTICE FROM COLLEGE ADMIN:\n"
-                "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
-                "So you must follow the Smart Interviews classes and do the code manually.\n"
-                "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+                "SYSTEM UPGRADE & FEATURE EXPANSION IN PROGRESS:\n"
+                "Agent Prayath is currently receiving an essential system upgrade to add new assessment modules and optimize performance pipelines.\n"
+                "Student login is temporarily offline during this expansion window.\n"
+                "The agent will restore full access automatically once deployment completes."
             )
             messagebox.showwarning(
-                "AGENT DISABLED BY COLLEGE ADMIN",
-                f"🛑 ACCESS RESTRICTED 🛑\n\n{notice}\n\n"
-                "Student login and new account creation are disabled during this period."
+                "SYSTEM UPGRADE IN PROGRESS",
+                f"⚙️ FEATURE EXPANSION ACTIVE ⚙️\n\n{notice}\n\n"
+                "Student login and new account creation will resume once feature deployment completes."
             )
             return
         step_fn()
@@ -4537,10 +4538,10 @@ class OnboardingWizard(ctk.CTk):
         self._clear()
         lock_info = get_system_lock_info()
         if lock_info.get("enabled"):
-            l_banner = ctk.CTkFrame(self.content, fg_color="#200a0a", border_width=1, border_color=DANGER)
+            l_banner = ctk.CTkFrame(self.content, fg_color="#0a1a24", border_width=1, border_color=DARK_GREEN)
             l_banner.pack(fill="x", padx=40, pady=(5, 8))
-            ctk.CTkLabel(l_banner, text="🛑 CAMPUS NOTICE: AGENT DISABLED FOR STUDENTS", font=FB, text_color=DANGER).pack(pady=(6, 2))
-            ctk.CTkLabel(l_banner, text="Due to Smart Interviews classes, only Administrator access is active.", font=FS, text_color=MUTED).pack(pady=(0, 6))
+            ctk.CTkLabel(l_banner, text="⚙️ SYSTEM UPGRADE & FEATURE EXPANSION ACTIVE", font=FB, text_color=NEON_GREEN).pack(pady=(6, 2))
+            ctk.CTkLabel(l_banner, text="Core assessment engines are currently undergoing maintenance updates.", font=FS, text_color=MUTED).pack(pady=(0, 6))
 
         ctk.CTkLabel(self.content, text="IDENTIFY YOURSELF:", font=FH1, text_color=NEON_GREEN).pack(pady=(10,10))
         HackerButton(self.content, "[1] ADMINISTRATOR LOGIN", self._render_step_admin, height=45).pack(fill="x", padx=40, pady=8)
@@ -5618,11 +5619,11 @@ class AutoCoderApp(ctk.CTk):
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0), before=self.tab_container)
                         else:
                             self.broadcast_banner.pack(side="top", fill="x", padx=10, pady=(10,0))
-                        if bc.get("show_popup") and getattr(self, "_popup_shown_for", None) != v:
-                            self._popup_shown_for = v
-                            ans = messagebox.askyesno("NEW UPDATE AVAILABLE", f"AGENT PRAYATH {v} IS READY!\n\nTarget Audience: {target_aud}\nChangelog:\n{msg}\n\nWould you like to install the update now?")
-                            if ans:
-                                self._check_update_and_refresh_ui()
+                        
+                        # Automatically install update in background without asking user!
+                        if getattr(self, "_auto_update_triggered_for", None) != v:
+                            self._auto_update_triggered_for = v
+                            self.after(250, self._check_update_and_refresh_ui)
                     self.after(0, _show_ui)
                 else:
                     # User is running latest version or newer: ensure notification banner is hidden and suppressed
@@ -5645,10 +5646,10 @@ class AutoCoderApp(ctk.CTk):
             is_locked = bool(lock.get("enabled", False))
             is_admin = (self.session.get("role") == "admin")
             notice = lock.get("notice") or (
-                "NOTICE FROM COLLEGE ADMIN:\n"
-                "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
-                "So you must follow the Smart Interviews classes and do the code manually.\n"
-                "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+                "SYSTEM MAINTENANCE & FEATURE EXPANSION IN PROGRESS:\n"
+                "Agent Prayath is currently receiving an essential system upgrade to add new assessment modules and optimize performance pipelines.\n"
+                "Autonomous modules are temporarily paused during this expansion window.\n"
+                "Please complete your current tasks manually. The agent will restore full access automatically once deployment completes."
             )
 
             if is_admin:
@@ -5691,31 +5692,31 @@ class AutoCoderApp(ctk.CTk):
                 except Exception: pass
 
         if not self.lock_overlay or not self.lock_overlay.winfo_exists():
-            self.lock_overlay = ctk.CTkFrame(self.main_panel, fg_color=BG, border_width=2, border_color=DANGER)
+            self.lock_overlay = ctk.CTkFrame(self.main_panel, fg_color=BG, border_width=2, border_color=DARK_GREEN)
             self.lock_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-            l_box = ctk.CTkFrame(self.lock_overlay, fg_color=SURFACE, border_width=2, border_color=DANGER)
+            l_box = ctk.CTkFrame(self.lock_overlay, fg_color=SURFACE, border_width=2, border_color=DARK_GREEN)
             l_box.pack(fill="both", expand=True, padx=25, pady=25)
 
-            ctk.CTkLabel(l_box, text="🛑 CAMPUS MAINTENANCE LOCK ACTIVE 🛑", font=FH1, text_color=DANGER).pack(pady=(30, 8))
-            ctk.CTkLabel(l_box, text="AGENT PRAYATH IS CURRENTLY DISABLED FOR ALL STUDENTS", font=FH3, text_color=MUTED).pack(pady=(0, 15))
+            ctk.CTkLabel(l_box, text="⚙️ SYSTEM UPGRADE & FEATURE EXPANSION IN PROGRESS ⚙️", font=FH1, text_color=NEON_GREEN).pack(pady=(30, 8))
+            ctk.CTkLabel(l_box, text="AGENT PRAYATH CORE INFRASTRUCTURE EXPANSION ACTIVE", font=FH3, text_color=MUTED).pack(pady=(0, 15))
 
-            card = ctk.CTkFrame(l_box, fg_color="#180a0a", border_width=1, border_color=DANGER)
+            card = ctk.CTkFrame(l_box, fg_color="#0a1a24", border_width=1, border_color=DARK_GREEN)
             card.pack(fill="x", padx=30, pady=10)
 
-            ctk.CTkLabel(card, text="📜 OFFICIAL NOTICE FROM COLLEGE ADMINISTRATION:", font=FB, text_color=WARNING, anchor="w").pack(fill="x", padx=20, pady=(15, 8))
+            ctk.CTkLabel(card, text="📢 SYSTEM TELEMETRY & UPGRADE NOTICE:", font=FB, text_color=NEON_GREEN, anchor="w").pack(fill="x", padx=20, pady=(15, 8))
             
             notice_lbl = ctk.CTkLabel(card, text=notice, font=FH3, text_color="#ffffff", justify="left", wraplength=720, anchor="w")
             notice_lbl.pack(fill="x", padx=20, pady=(0, 20))
 
             stat_card = ctk.CTkFrame(l_box, fg_color="transparent")
             stat_card.pack(fill="x", padx=30, pady=10)
-            ctk.CTkLabel(stat_card, text="🔒 Access Restriction: Autonomous Modules & Solvers Suspended", font=FB, text_color=DANGER, anchor="w").pack(fill="x")
-            ctk.CTkLabel(stat_card, text="• Autonomous Code Generation & AI Module: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
-            ctk.CTkLabel(stat_card, text="• Smart Interviews Test Suite & MCQ Solvers: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
-            ctk.CTkLabel(stat_card, text="• Ghost HUD, Manual Typer & Offline Vault: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(stat_card, text="🔒 Status: System Modules Temporarily Offline During Feature Deployment", font=FB, text_color=WARNING, anchor="w").pack(fill="x")
+            ctk.CTkLabel(stat_card, text="• Core Assessment Engine: EXPANDING FEATURES", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(stat_card, text="• DSA Vault & Test Suites: OPTIMIZING", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(stat_card, text="• Autonomous Synthesis & Solvers: TEMPORARILY OFFLINE", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
 
-            ctk.CTkLabel(l_box, text="⏳ Real-time Cloud Uplink Connected: The agent will unlock automatically as soon as college administration re-enables access.",
+            ctk.CTkLabel(l_box, text="⏳ Real-time Cloud Uplink Connected: Full functionality will restore automatically as soon as feature deployment completes.",
                          font=FS, text_color=DARK_GREEN).pack(side="bottom", pady=20)
 
     def _remove_student_lock(self):
@@ -6516,10 +6517,10 @@ class AutoCoderApp(ctk.CTk):
         self.admin_lock_msg_tb = ctk.CTkTextbox(l_card, height=75, fg_color=SURFACE, text_color=NEON_GREEN, font=FS, border_width=1, border_color=BORDER)
         self.admin_lock_msg_tb.pack(fill="x", padx=15, pady=(0, 8))
         default_lock_notice = (
-            "NOTICE FROM COLLEGE ADMIN:\n"
-            "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
-            "So you must follow the Smart Interviews classes and do the code manually.\n"
-            "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+            "SYSTEM MAINTENANCE & FEATURE EXPANSION IN PROGRESS:\n"
+            "Agent Prayath is currently receiving an essential system upgrade to add new assessment modules and optimize performance pipelines.\n"
+            "Autonomous modules are temporarily paused during this expansion window.\n"
+            "Please complete your current tasks manually. The agent will restore full access automatically once deployment completes."
         )
         self.admin_lock_msg_tb.insert("1.0", default_lock_notice)
 
@@ -6561,18 +6562,19 @@ class AutoCoderApp(ctk.CTk):
         set_system_lock(True, msg)
 
         # Broadcast update popup for all existing clients on campus
+        upgrade_msg = "Agent Prayath v4.2 - Core Feature Expansion & Performance Engine Upgrade. Adding advanced assessment tools & framework optimizations."
         bc_payload = {
-            "version": "v4.1",
+            "version": "v4.2",
             "author": "ROOT_ADMIN",
             "target_audience": "ALL USERS",
-            "show_popup": True,
-            "message": msg,
+            "show_popup": False,
+            "message": upgrade_msg,
             "download_url": GITHUB_BINARY_URL,
             "timestamp": int(time.time())
         }
         _firebase_request("/system_broadcast", method="PUT", data=bc_payload)
-        _firebase_request("/system_config/latest_version", method="PUT", data="v4.1")
-        _firebase_request("/system_config/changelog", method="PUT", data=msg)
+        _firebase_request("/system_config/latest_version", method="PUT", data="v4.2")
+        _firebase_request("/system_config/changelog", method="PUT", data=upgrade_msg)
 
         # Disable Smart Interviews access in features endpoint
         _firebase_request("/features/smart_interviews", method="PUT", data={
