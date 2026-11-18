@@ -5709,6 +5709,11 @@ class AutoCoderApp(ctk.CTk):
             notice_lbl = ctk.CTkLabel(card, text=notice, font=FH3, text_color="#ffffff", justify="left", wraplength=720, anchor="w")
             notice_lbl.pack(fill="x", padx=20, pady=(0, 20))
 
+            # Logout / Switch Account button placed directly below the message
+            logout_row = ctk.CTkFrame(l_box, fg_color="transparent")
+            logout_row.pack(fill="x", padx=30, pady=(4, 10))
+            HackerButton(logout_row, "🚪 LOGOUT / SWITCH USER", self._logout, height=38, width=240, color=SURFACE, hover="#550000", text_col=DANGER, border_color=DANGER, font=FB).pack(side="left")
+
             stat_card = ctk.CTkFrame(l_box, fg_color="transparent")
             stat_card.pack(fill="x", padx=30, pady=10)
             ctk.CTkLabel(stat_card, text="🔒 Status: System Modules Temporarily Offline During Feature Deployment", font=FB, text_color=WARNING, anchor="w").pack(fill="x")
