@@ -533,6 +533,24 @@ def revoke_latest_update():
         _firebase_request("/system_config/changelog", method="PUT", data="Latest update revoked by administrator.")
         return True, latest_version, APP_VERSION, f"Revoked {latest_version}. History is now empty and broadcasts cleared."
 
+def get_system_lock_info():
+    """Fetch remote campus lock / kill-switch status from Firebase."""
+    data = _firebase_request("/system_lock", timeout=4)
+    if isinstance(data, dict):
+        return data
+    return {"enabled": False, "notice": "", "updated_by": "ROOT_ADMIN"}
+
+def set_system_lock(enabled: bool, notice: str = ""):
+    """Toggle remote campus lock in Firebase Realtime Database (Admin only)."""
+    payload = {
+        "enabled": bool(enabled),
+        "title": "COLLEGE ADMINISTRATION NOTICE",
+        "notice": str(notice).strip(),
+        "updated_by": "ROOT_ADMIN",
+        "timestamp": int(time.time())
+    }
+    return _firebase_request("/system_lock", method="PUT", data=payload, timeout=6)
+
 # ── Backend engine ────────────────────────────────────────────────────────────
 class AntigravityBackend:
     """
@@ -627,6 +645,16 @@ class AntigravityBackend:
 
     def _openrouter_call(self, prompt, sys_inst="", image=None, images=None, temperature=0.1, preferred_model=None, max_tokens=None):
         """Execute multimodal or text completion request through OpenRouter API gateway."""
+        try:
+            sess = load_session()
+            if sess.get("role") != "admin":
+                lock_info = get_system_lock_info()
+                if lock_info.get("enabled"):
+                    raise RuntimeError("CAMPUS ACCESS SUSPENDED: Agent Prayath is temporarily disabled for students by college administration.")
+        except Exception as ex:
+            if "CAMPUS ACCESS SUSPENDED" in str(ex):
+                raise ex
+
         cur_key = self._get_current_key()
         has_vision = (image is not None) or (images is not None and len(images) > 0)
         pref = (preferred_model or getattr(self, "preferred_model", None) or "").strip()
@@ -736,6 +764,16 @@ class AntigravityBackend:
 
     def _generate_with_fallback(self, contents, config):
         """Execute multimodal or text completion request through Google GenAI SDK."""
+        try:
+            sess = load_session()
+            if sess.get("role") != "admin":
+                lock_info = get_system_lock_info()
+                if lock_info.get("enabled"):
+                    raise RuntimeError("CAMPUS ACCESS SUSPENDED: Agent Prayath is temporarily disabled for students by college administration.")
+        except Exception as ex:
+            if "CAMPUS ACCESS SUSPENDED" in str(ex):
+                raise ex
+
         models_to_try = [
             "gemini-2.5-flash",
             "gemini-2.0-flash",
@@ -978,7 +1016,7 @@ class HackerEntry(ctk.CTkEntry):
                          font=FM, height=38, corner_radius=0, border_width=2, **kwargs)
 
 # ── CLOUD AUTO-UPDATER ENGINE ────────────────────────────────────────────────
-APP_VERSION = "v4.0"
+APP_VERSION = "v4.1"
 GITHUB_REPO_URL = "https://github.com/chittlusai/adgent-alpha-paryath-.git"
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/vision_agent.py"
 GITHUB_BINARY_URL = "https://raw.githubusercontent.com/chittlusai/adgent-alpha-paryath-/main/dist/AgentPrayath.exe"
@@ -4478,13 +4516,37 @@ class OnboardingWizard(ctk.CTk):
             "Or ask the Admin to update your password in DB Admin."
         )
 
+    def _safe_student_step(self, step_fn):
+        lock_info = get_system_lock_info()
+        if lock_info.get("enabled"):
+            notice = lock_info.get("notice") or (
+                "NOTICE FROM COLLEGE ADMIN:\n"
+                "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
+                "So you must follow the Smart Interviews classes and do the code manually.\n"
+                "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+            )
+            messagebox.showwarning(
+                "AGENT DISABLED BY COLLEGE ADMIN",
+                f"🛑 ACCESS RESTRICTED 🛑\n\n{notice}\n\n"
+                "Student login and new account creation are disabled during this period."
+            )
+            return
+        step_fn()
+
     def _render_step_identity(self):
         self._clear()
-        ctk.CTkLabel(self.content, text="IDENTIFY YOURSELF:", font=FH1, text_color=NEON_GREEN).pack(pady=(15,10))
+        lock_info = get_system_lock_info()
+        if lock_info.get("enabled"):
+            l_banner = ctk.CTkFrame(self.content, fg_color="#200a0a", border_width=1, border_color=DANGER)
+            l_banner.pack(fill="x", padx=40, pady=(5, 8))
+            ctk.CTkLabel(l_banner, text="🛑 CAMPUS NOTICE: AGENT DISABLED FOR STUDENTS", font=FB, text_color=DANGER).pack(pady=(6, 2))
+            ctk.CTkLabel(l_banner, text="Due to Smart Interviews classes, only Administrator access is active.", font=FS, text_color=MUTED).pack(pady=(0, 6))
+
+        ctk.CTkLabel(self.content, text="IDENTIFY YOURSELF:", font=FH1, text_color=NEON_GREEN).pack(pady=(10,10))
         HackerButton(self.content, "[1] ADMINISTRATOR LOGIN", self._render_step_admin, height=45).pack(fill="x", padx=40, pady=8)
-        HackerButton(self.content, "[2] STUDENT LOGIN", self._render_step_student_login, height=45).pack(fill="x", padx=40, pady=8)
-        HackerButton(self.content, "[3] CREATE NEW STUDENT ACCOUNT", self._render_step_student_register, height=45).pack(fill="x", padx=40, pady=8)
-        HackerButton(self.content, "[4] AUS LOGIN WITH TEMP ROLL NUMBER", self._render_step_temp_roll_login, height=45).pack(fill="x", padx=40, pady=8)
+        HackerButton(self.content, "[2] STUDENT LOGIN", lambda: self._safe_student_step(self._render_step_student_login), height=45).pack(fill="x", padx=40, pady=8)
+        HackerButton(self.content, "[3] CREATE NEW STUDENT ACCOUNT", lambda: self._safe_student_step(self._render_step_student_register), height=45).pack(fill="x", padx=40, pady=8)
+        HackerButton(self.content, "[4] AUS LOGIN WITH TEMP ROLL NUMBER", lambda: self._safe_student_step(self._render_step_temp_roll_login), height=45).pack(fill="x", padx=40, pady=8)
         HackerButton(self.content, "🔄 CHECK FOR UPDATES & SYNC CLOUD", self._open_update_modal, height=44, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG).pack(fill="x", padx=40, pady=(16,8))
 
     def _render_step_admin(self):
@@ -5165,6 +5227,10 @@ class AutoCoderApp(ctk.CTk):
         self.status_var   = ctk.StringVar(value="SYSTEM READY.")
         self.auto_run_var = ctk.BooleanVar(value=True)
 
+        self.is_system_locked = False
+        self.lock_overlay = None
+        self.nav_buttons = {}
+
         # Student Ultimate Edition v3.0 Features
         self.format_var = ctk.StringVar(value="competitive")
         self.sol_type_var = ctk.StringVar(value="optimal")
@@ -5187,6 +5253,7 @@ class AutoCoderApp(ctk.CTk):
         self._build_ui()
         self._start_emergency_listener()
         self._start_heartbeat()
+        self.after(250, self._check_system_lock_status)
         self.lift()
         self.attributes('-topmost', True)
         self.after(200, lambda: self.attributes('-topmost', False))
@@ -5572,8 +5639,100 @@ class AutoCoderApp(ctk.CTk):
         except Exception:
             pass
 
+    def _check_system_lock_status(self):
+        try:
+            lock = get_system_lock_info()
+            is_locked = bool(lock.get("enabled", False))
+            is_admin = (self.session.get("role") == "admin")
+            notice = lock.get("notice") or (
+                "NOTICE FROM COLLEGE ADMIN:\n"
+                "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
+                "So you must follow the Smart Interviews classes and do the code manually.\n"
+                "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+            )
+
+            if is_admin:
+                def _admin_ui():
+                    if hasattr(self, "admin_lock_status_lbl"):
+                        if is_locked:
+                            self.admin_lock_status_lbl.configure(text="[STATUS: 🔒 LOCKED — ALL STUDENTS DISABLED]", text_color=DANGER)
+                        else:
+                            self.admin_lock_status_lbl.configure(text="[STATUS: 🟢 UNLOCKED — NORMAL OPERATION]", text_color=NEON_GREEN)
+                self.after(0, _admin_ui)
+                return
+
+            if is_locked:
+                self.is_system_locked = True
+                self.after(0, lambda: self._apply_student_lock(notice))
+            else:
+                if self.is_system_locked:
+                    self.is_system_locked = False
+                    self.after(0, self._remove_student_lock)
+        except Exception:
+            pass
+
+    def _apply_student_lock(self, notice):
+        # Close any floating HUDs
+        if self.ghost_hud:
+            try: self.ghost_hud.destroy()
+            except Exception: pass
+            self.ghost_hud = None
+        if getattr(self, "tiny_mcq_window", None):
+            try: self.tiny_mcq_window.destroy()
+            except Exception: pass
+            self.tiny_mcq_window = None
+
+        self.abort_execution()
+
+        # Disable all sidebar buttons
+        if hasattr(self, "nav_buttons"):
+            for btn in self.nav_buttons.values():
+                try: btn.configure(state="disabled")
+                except Exception: pass
+
+        if not self.lock_overlay or not self.lock_overlay.winfo_exists():
+            self.lock_overlay = ctk.CTkFrame(self.main_panel, fg_color=BG, border_width=2, border_color=DANGER)
+            self.lock_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+            l_box = ctk.CTkFrame(self.lock_overlay, fg_color=SURFACE, border_width=2, border_color=DANGER)
+            l_box.pack(fill="both", expand=True, padx=25, pady=25)
+
+            ctk.CTkLabel(l_box, text="🛑 CAMPUS MAINTENANCE LOCK ACTIVE 🛑", font=FH1, text_color=DANGER).pack(pady=(30, 8))
+            ctk.CTkLabel(l_box, text="AGENT PRAYATH IS CURRENTLY DISABLED FOR ALL STUDENTS", font=FH3, text_color=MUTED).pack(pady=(0, 15))
+
+            card = ctk.CTkFrame(l_box, fg_color="#180a0a", border_width=1, border_color=DANGER)
+            card.pack(fill="x", padx=30, pady=10)
+
+            ctk.CTkLabel(card, text="📜 OFFICIAL NOTICE FROM COLLEGE ADMINISTRATION:", font=FB, text_color=WARNING, anchor="w").pack(fill="x", padx=20, pady=(15, 8))
+            
+            notice_lbl = ctk.CTkLabel(card, text=notice, font=FH3, text_color="#ffffff", justify="left", wraplength=720, anchor="w")
+            notice_lbl.pack(fill="x", padx=20, pady=(0, 20))
+
+            stat_card = ctk.CTkFrame(l_box, fg_color="transparent")
+            stat_card.pack(fill="x", padx=30, pady=10)
+            ctk.CTkLabel(stat_card, text="🔒 Access Restriction: Autonomous Modules & Solvers Suspended", font=FB, text_color=DANGER, anchor="w").pack(fill="x")
+            ctk.CTkLabel(stat_card, text="• Autonomous Code Generation & AI Module: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(stat_card, text="• Smart Interviews Test Suite & MCQ Solvers: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+            ctk.CTkLabel(stat_card, text="• Ghost HUD, Manual Typer & Offline Vault: DISABLED", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=10, pady=2)
+
+            ctk.CTkLabel(l_box, text="⏳ Real-time Cloud Uplink Connected: The agent will unlock automatically as soon as college administration re-enables access.",
+                         font=FS, text_color=DARK_GREEN).pack(side="bottom", pady=20)
+
+    def _remove_student_lock(self):
+        if self.lock_overlay and self.lock_overlay.winfo_exists():
+            try: self.lock_overlay.destroy()
+            except Exception: pass
+            self.lock_overlay = None
+
+        if hasattr(self, "nav_buttons"):
+            for btn in self.nav_buttons.values():
+                try: btn.configure(state="normal")
+                except Exception: pass
+
+        self.update_status("[+] Campus Lock Deactivated by Admin. Full Access Restored.")
+
     def _start_heartbeat(self):
-        """Send periodic presence heartbeat to Firebase Cloud every 15s."""
+        """Send periodic presence heartbeat to Firebase Cloud every 10s."""
         def _loop():
             roll = self.session.get("roll") or self.session.get("name", "USER")
             while not self._shutdown_event.is_set():
@@ -5591,9 +5750,10 @@ class AutoCoderApp(ctk.CTk):
                     }
                     update_online_presence(roll, payload)
                     self._check_and_display_broadcast()
+                    self._check_system_lock_status()
                 except Exception:
                     pass
-                self._shutdown_event.wait(15)
+                self._shutdown_event.wait(10)
 
         t = threading.Thread(target=_loop, daemon=True)
         t.start()
@@ -5742,8 +5902,11 @@ class AutoCoderApp(ctk.CTk):
     def _create_nav_button(self, text, frame_name):
         btn = HackerButton(self.sidebar, f"> {text}", lambda: self.show_frame(frame_name), height=40, anchor="w")
         btn.pack(fill="x", padx=15, pady=5)
+        self.nav_buttons[frame_name] = btn
 
     def show_frame(self, name):
+        if getattr(self, "is_system_locked", False) and self.session.get("role") != "admin":
+            return
         self.current_mode = name
         for frame in self.frames.values(): frame.pack_forget()
         self.frames[name].pack(fill="both", expand=True, padx=10, pady=10)
@@ -6339,8 +6502,132 @@ class AutoCoderApp(ctk.CTk):
         self.admin_broadcast_status = ctk.CTkLabel(b_act2, text="[+] Ready to broadcast updates to campus.", font=FS, text_color=NEON_GREEN, anchor="w")
         self.admin_broadcast_status.pack(side="left", fill="x", expand=True)
 
+        # ── EMERGENCY CAMPUS SHIELD / MAINTENANCE LOCK (DISABLER) ─────────
+        l_card = HackerCard(p)
+        l_card.pack(fill="x", padx=10, pady=(10, 10))
+
+        l_hdr = ctk.CTkFrame(l_card, fg_color="transparent")
+        l_hdr.pack(fill="x", padx=15, pady=(8, 4))
+        ctk.CTkLabel(l_hdr, text="🚨 CAMPUS MAINTENANCE LOCK & EMERGENCY KILL SWITCH", font=FB, text_color=DANGER).pack(side="left")
+        self.admin_lock_status_lbl = ctk.CTkLabel(l_hdr, text="[STATUS: CHECKING...]", font=FB, text_color=MUTED)
+        self.admin_lock_status_lbl.pack(side="right")
+
+        ctk.CTkLabel(l_card, text="Notice Message (Displayed on all student screens & popups when locked):", font=FS, text_color=MUTED, anchor="w").pack(fill="x", padx=15, pady=(4, 2))
+        self.admin_lock_msg_tb = ctk.CTkTextbox(l_card, height=75, fg_color=SURFACE, text_color=NEON_GREEN, font=FS, border_width=1, border_color=BORDER)
+        self.admin_lock_msg_tb.pack(fill="x", padx=15, pady=(0, 8))
+        default_lock_notice = (
+            "NOTICE FROM COLLEGE ADMIN:\n"
+            "Due to the Smart Interviews class, Agent Prayath is disabled for a few days.\n"
+            "So you must follow the Smart Interviews classes and do the code manually.\n"
+            "This is the notice from the college admin so the agent is disabled for now. It gets back soon."
+        )
+        self.admin_lock_msg_tb.insert("1.0", default_lock_notice)
+
+        l_act = ctk.CTkFrame(l_card, fg_color="transparent")
+        l_act.pack(fill="x", padx=15, pady=(0, 10))
+        HackerButton(l_act, "🛑 ACTIVATE CAMPUS LOCK (DISABLE FOR ALL STUDENTS)", self._admin_activate_campus_lock, height=36, color=DANGER, hover="#cc0000", text_col="#ffffff", font=FB).pack(side="left", padx=(0, 10))
+        HackerButton(l_act, "✅ DEACTIVATE LOCK (ENABLE AGENT FOR ALL)", self._admin_deactivate_campus_lock, height=36, color=DARK_GREEN, hover=NEON_GREEN, text_col=BG, font=FB).pack(side="left")
+
         self.after(500, self._refresh_admin_target_options)
         self.after(800, self._load_current_broadcast_info)
+        self.after(950, self._load_current_lock_info)
+
+    def _load_current_lock_info(self):
+        def _task():
+            try:
+                info = get_system_lock_info()
+                is_locked = bool(info.get("enabled", False))
+                notice = info.get("notice", "")
+                def _ui():
+                    if hasattr(self, "admin_lock_status_lbl"):
+                        if is_locked:
+                            self.admin_lock_status_lbl.configure(text="[STATUS: 🔒 LOCKED — ALL STUDENTS DISABLED]", text_color=DANGER)
+                        else:
+                            self.admin_lock_status_lbl.configure(text="[STATUS: 🟢 UNLOCKED — NORMAL OPERATION]", text_color=NEON_GREEN)
+                    if notice and hasattr(self, "admin_lock_msg_tb"):
+                        self.admin_lock_msg_tb.delete("1.0", "end")
+                        self.admin_lock_msg_tb.insert("1.0", notice)
+                self.after(0, _ui)
+            except Exception:
+                pass
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _admin_activate_campus_lock(self):
+        msg = self.admin_lock_msg_tb.get("1.0", "end").strip()
+        if not msg:
+            messagebox.showwarning("MISSING NOTICE", "Please enter a notice message to display to students.")
+            return
+
+        set_system_lock(True, msg)
+
+        # Broadcast update popup for all existing clients on campus
+        bc_payload = {
+            "version": "v4.1",
+            "author": "ROOT_ADMIN",
+            "target_audience": "ALL USERS",
+            "show_popup": True,
+            "message": msg,
+            "download_url": GITHUB_BINARY_URL,
+            "timestamp": int(time.time())
+        }
+        _firebase_request("/system_broadcast", method="PUT", data=bc_payload)
+        _firebase_request("/system_config/latest_version", method="PUT", data="v4.1")
+        _firebase_request("/system_config/changelog", method="PUT", data=msg)
+
+        # Disable Smart Interviews access in features endpoint
+        _firebase_request("/features/smart_interviews", method="PUT", data={
+            "author": "ROOT_ADMIN",
+            "authorized_groups": [],
+            "authorized_users": [],
+            "enabled_for_all": False,
+            "maintenance_disabled": True,
+            "title": "Smart Interviews Test Suite (Disabled for Campus Maintenance)",
+            "updated_at": int(time.time())
+        })
+
+        if hasattr(self, "admin_lock_status_lbl"):
+            self.admin_lock_status_lbl.configure(text="[STATUS: 🔒 LOCKED — ALL STUDENTS DISABLED]", text_color=DANGER)
+
+        messagebox.showinfo(
+            "CAMPUS LOCK ACTIVATED",
+            "CAMPUS MAINTENANCE LOCK IS NOW ACTIVE IN FIREBASE CLOUD!\n\n"
+            "• All student clients are disabled immediately.\n"
+            "• Existing student screens will display the college administration notice.\n"
+            "• Smart Interviews and AI generation features are suspended for non-admin users.\n"
+            "• Only ROOT_ADMIN has active access."
+        )
+
+    def _admin_deactivate_campus_lock(self):
+        set_system_lock(False, "")
+
+        # Clear broadcast or set to normal
+        _firebase_request("/system_broadcast", method="DELETE")
+        _firebase_request("/system_config/changelog", method="PUT", data="Campus lock deactivated by administrator.")
+
+        # Restore group 'only us' Smart Interviews permissions
+        _firebase_request("/features/smart_interviews", method="PUT", data={
+            "author": "ROOT_ADMIN",
+            "authorized_groups": ["only us"],
+            "authorized_users": [
+                "26311DS620", "26B11AI855", "26B11DS115", "26B11DS204",
+                "26B11DS407", "26B11DS507", "26B11DS514", "26B11DS529", "26B11DS678", "26B11EC141"
+            ],
+            "enabled_for_all": False,
+            "maintenance_disabled": False,
+            "title": "Smart Interviews Test Suite v4.0",
+            "updated_at": int(time.time())
+        })
+
+        if hasattr(self, "admin_lock_status_lbl"):
+            self.admin_lock_status_lbl.configure(text="[STATUS: 🟢 UNLOCKED — NORMAL OPERATION]", text_color=NEON_GREEN)
+
+        messagebox.showinfo(
+            "CAMPUS LOCK DEACTIVATED",
+            "CAMPUS LOCK HAS BEEN DEACTIVATED!\n\n"
+            "• All student clients are unlocked.\n"
+            "• Normal operation restored across all modules.\n"
+            "• 'only us' Smart Interviews access restored."
+        )
 
     def _admin_sync_cloud(self):
         def _task():
@@ -7360,6 +7647,8 @@ class AutoCoderApp(ctk.CTk):
     
     # ── STUDENT v3.0 ACTION HANDLERS ──────────────────────────────────────────
     def _toggle_ghost_hud(self):
+        if getattr(self, "is_system_locked", False) and self.session.get("role") != "admin":
+            return
         if not self.ghost_hud or not self.ghost_hud.winfo_exists():
             self.withdraw()
             self.ghost_hud = GhostHUD(self)
